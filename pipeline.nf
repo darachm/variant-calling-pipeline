@@ -1,18 +1,20 @@
 #!/usr/bin/env nextflow
 
 // This is a comment.
+// vim: syntax=groovy
+// -*- mode: groovy;-*-
 
 // You should configure everything in the '*.nfconfig' file, not here.
 
-## Get the current working directory
-WD="$(pwd)"
-
-input_fastqs = Channel.fromFilePairs(params.fastq_directory,size=-1)
-    { file -> file.getBaseName() - ~/n0[12]/ - ~/.fastq/ }
+input_fastqs = Channel
+    .fromFilePairs(params.fastq_files_glob,size: -1)
+    { file -> file.getBaseName() - ~/_n0[12]/ - ~/.fastq/ }
     .ifEmpty{ error "couldn't find those fastqs!" }
 
 file("./output").mkdirs()
 file("./reports").mkdirs()
+
+println(input_fastqs)
 
 process preprocess_alignment {
     input:
@@ -22,20 +24,18 @@ process preprocess_alignment {
     script:
     """
     module load ${process.bwa_module}
-    bwa mem -M -R '@RG\tID:$file\tLB:$file\tPL:$PL\tPM:$PM\tSM:$file'\
-        params.reference_fasta ${reads[1]} ${reads[2]} > \
+    bwa mem -M -R '@RG\tID:${pair_id}\tLB:${pair_id}\tPL:${params.sequencing_platform}\tPM:${params.sequencing_machine}\tSM:${pair_id}'\
+        params.reference_fasta ${reads[0]} ${reads[1]} > \
         aligned_reads.sam
     """
-}
-
-//response=\
-//$(sbatch -J $ID.bwa -o $ID.bwa.out -e $ID.bwa.err --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=8000 --wrap="$com")
 //stringarray=($response)
 //alignment=${stringarray[-1]}
 //echo $alignment > $ID.log
 //echo "ALIGNMENT: " $alignment
 //echo "Alignment Submitted"
-//
+}
+
+
 //com="cd $FWD && \ 
 //module load $PICARD && \
 //java -jar $PICARD_JAR \

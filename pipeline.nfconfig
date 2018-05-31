@@ -9,12 +9,18 @@
 
 // 'params' are variables that will be accessible the script, using
 // that prefix as `params.`
+
 params {
     email_address = "${USER}@nyu.edu"
     experiment_name = "untitled-in-config-file"
     sequencing_platform = "illumina"
     sequencing_machine = "nextflow"
-    fastq_directory = "/scratch/cgsb/gencore/out/Gresham/2015-10-23_HK5NHBGXX/lib1-26/"
+// NOTE that this is how you specify the files you're going to run on.
+// It is a glob, meaning it's got a wildcard in there. BECAUSE of 
+// that, it REQUIRES single quotes to intepret that too soon.
+// TEST your glob on the command line with 'ls', then copy and paste 
+// it in here.
+    fastq_files_glob = '/scratch/cgsb/gencore/out/Gresham/2015-10-23_HK5NHBGXX/lib1-26/*'
     reference_fasta = "/scratch/work/cgsb/reference_genomes/Public/Fungi/Saccharomyces_cerevisiae/R64-1-1/Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa"
 // find the below by executing (TODO COPY THAT HERE)
     snpeff_database = "Saccharomyces_cerevisiae"
@@ -23,7 +29,8 @@ params {
 // This defines the resource paramters for various 'executor's
 executor {
     $local { // This defines running without job submission
-        cpus = 1, memory = '4GB'
+        cpus='1'
+        memory="4GB"
     }
     $slurm {// This defines a variable that's appended to the sbatch
             // submission (I believe), so change the email if you
