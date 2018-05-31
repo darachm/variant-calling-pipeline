@@ -1,4 +1,5 @@
-// These are comments.
+// These are comments. 
+// Ignore me, this block is for vim users to set syntax right:
 // vim: syntax=groovy
 // -*- mode: groovy;-*-
 
@@ -11,12 +12,11 @@
 
 // 'params' are variables that will be accessible the script, using
 // that prefix as `params.`
-
 params {
     email_address = "${USER}@nyu.edu"
     experiment_name = "untitled-in-config-file"
     sequencing_platform = "illumina"
-    sequencing_machine = "nextflow"
+    sequencing_machine = "nextseq"
 // NOTE that this is how you specify the files you're going to run on.
 // It is a glob, meaning it's got a wildcard in there. BECAUSE of 
 // that, it REQUIRES single quotes to intepret that too soon.
@@ -24,29 +24,32 @@ params {
 // it in here.
 //    fastq_files_glob = '/scratch/cgsb/gencore/out/Gresham/2015-10-23_HK5NHBGXX/lib1-26/*'
     fastq_files_glob = 'test_inputs/*'
+// This refers to the prefix fasta that's going to be used by BWA
     reference_prefix = "/scratch/work/cgsb/genomes/Public/Fungi/Saccharomyces_cerevisiae/Ensembl/R64-1-1/Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa"
 // find the below by executing (TODO COPY THAT HERE)
     snpeff_database = "Saccharomyces_cerevisiae"
 
-    bwa_module = "bwa/intel/0.7.15"
-//    modules: { bwa = "bwa/intel/0.7.15" }
-//    BWA = "bwa/intel/0.7.15"
-//BEDTOOLS='bedtools/intel/2.26.0'
-//PICARD='picard/2.8.2'
-//GATK='gatk/3.7-0'
-//R='r/intel/3.4.2'
-//SAMTOOLS='samtools/intel/1.3.1'
-//SNPEFF='snpeff/4.3i'
-//PICARD_JAR='/share/apps/picard/2.8.2/picard-2.8.2.jar'
-//GATK_JAR='/share/apps/gatk/3.7-0/GenomeAnalysisTK.jar'
-//SNPEFF_JAR='/share/apps/snpeff/4.3i/snpEff.jar'
+// Below are the various modules to be loaded
+    modules { 
+        BWA        = "bwa/intel/0.7.15" 
+        BEDTOOLS   = "bedtools/intel/2.26.0"
+        PICARD     = "picard/2.8.2"
+        GATK       = "gatk/3.7-0"
+        R          = "r/intel/3.4.2"
+        SAMTOOLS   = "samtools/intel/1.3.1"
+        SNPEFF     = "snpeff/4.3i"
+        PICARD_JAR = "/share/apps/picard/2.8.2/picard-2.8.2.jar"
+        GATK_JAR   = "/share/apps/gatk/3.7-0/GenomeAnalysisTK.jar"
+        SNPEFF_JAR = "/share/apps/snpeff/4.3i/snpEff.jar"
+    }
+
 }
 
 // This defines the resource paramters for various 'executor's
 executor {
     $local { // This defines running without job submission
         cpus='1'
-        memory="4GB"
+        memory="8GB"
     }
     $slurm {// This defines a variable that's appended to the sbatch
             // submission (I believe), so change the email if you
@@ -62,11 +65,47 @@ executor {
 // executed)
 process {
     executor="slurm" // Sets default to slurm, just in case
+//    executor="local"
 
-
-    withName: preprocess_alignment {
+    withName: align_to_reference {
         cpus="1"
-        time="10m" // default was 4 hours
+        time="1m" // default was 4 hours
+        memory="8GB"
+    }
+
+    withName: sort_and_bamize {
+        cpus="1"
+        time="1m" // default was 4 hours
+        memory="8GB"
+    }
+
+    withName: collect_alignment_metrics {
+        cpus="1"
+        time="1m" // default was 4 hours
+        memory="8GB"
+    }
+
+    withName: mark_duplicates {
+        cpus="1"
+        time="2m" // default was 4 hours
+        memory="8GB"
+    }
+
+    withName: realign_around_indels {
+        cpus="1"
+        time="2m"
+        memory="8GB"
+    }
+
+    withName: call_variants {
+        cpus="1"
+        time="2m"
+        memory="8GB"
+    }
+
+    withName: extract_snps_and_indels {
+        cpus="1"
+        time="2m"
         memory="8GB"
     }
 }

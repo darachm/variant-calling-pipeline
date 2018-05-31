@@ -16,132 +16,7 @@ reference_prefix = Channel.fromPath(params.reference_prefix)
 file("./output").mkdirs()
 file("./reports").mkdirs()
 
-process preprocess_alignment {
-    echo true
-    input:
-        set val(pair_id), file(reads) from input_fastqs
-        each reference_prefix
-    output:
-        set val(pair_id), file("aligned_reads.sam") into aligned_reads
-    script:
-    """
-    module load ${params.bwa_module}
-    echo "beginning alignment of ${pair_id}"
-    bwa mem -M -R '@RG\tID:${pair_id}\tLB:${pair_id}\tPL:${params.sequencing_platform}\tPM:${params.sequencing_machine}\tSM:${pair_id}'\
-        ${reference_prefix} ${reads[0]} ${reads[1]} > \
-        aligned_reads.sam
-    echo "finished alignment of ${pair_id}"
-    """
-}
-
-
-//com="cd $FWD && \ 
-//module load $PICARD && \
-//java -jar $PICARD_JAR \
-//SortSam \
-//INPUT=${ID}_aligned_reads.sam \
-//OUTPUT=${ID}_sorted_reads.bam \
-//SORT_ORDER=coordinate"
-//response=\
-//$(sbatch -J $ID.samToSortedBam -o $ID.samToSortedBam.out -e $ID.samToSortedBam.err --dependency=afterok:$alignment --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=8000 --wrap="$com")
-//stringarray=($response)
-//samToSortedBam=${stringarray[-1]}
-//echo $samToSortedBam >> $ID.log
-//echo "SAMTOSORTEDBAM: " $samToSortedBam
-//echo "samToSortedBam Submitted"
-//
-//com="cd $FWD && \
-//module  load $PICARD && \
-//module load $R && \
-//module load $SAMTOOLS && \
-//java -jar $PICARD_JAR \
-//CollectAlignmentSummaryMetrics \
-//R=$REF \
-//I=${ID}_sorted_reads.bam \
-//O=${ID}_alignment_metrics.txt && \
-//java -jar $PICARD_JAR \
-//CollectInsertSizeMetrics \
-//INPUT=${ID}_sorted_reads.bam \
-//OUTPUT=${ID}_insert_metrics.txt \
-//HISTOGRAM_FILE=${ID}_insert_size_histogram.pdf && \
-//samtools depth -a ${ID}_sorted_reads.bam > ${ID}_depth_out.txt"
-//response=\
-//$(sbatch -J $ID.getMetrics -o $ID.getMetrics.out -e $ID.getMetrics.err --dependency=afterok:$samToSortedBam --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=8000 --wrap="$com")
-//stringarray=($response)
-//getMetrics=${stringarray[-1]}
-//echo $getMetrics >> $ID.log
-//echo "GETMETRICS: " $getMetrics
-//echo "getMetrics Submitted"
-//
-//
-//com="cd $FWD && \ 
-//rm ${ID}_aligned_reads.sam && \
-//module load $PICARD && \
-//java -jar $PICARD_JAR \
-//MarkDuplicates \
-//INPUT=${ID}_sorted_reads.bam \
-//OUTPUT=${ID}_dedup_reads.bam \
-//METRICS_FILE=${ID}_metrics.txt" 
-//response=\
-//$(sbatch -J $ID.markDuplicates -o $ID.markDuplicates.out -e $ID.markDuplicates.err --dependency=afterok:$samToSortedBam --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//markDuplicates=${stringarray[-1]}
-//echo $markDuplicates >> $ID.log
-//echo "MARKDUPLICATES: " $markDuplicates
-//echo "Mark Duplicates Submitted"
-//
-//com="cd $FWD && \ 
-//module load $PICARD && \
-//java -jar $PICARD_JAR \
-//BuildBamIndex \
-//INPUT=${ID}_dedup_reads.bam" 
-//response=\
-//$(sbatch -J $ID.buildBamIndex -o $ID.buildBamIndex.out -e $ID.buildBamIndex.err --dependency=afterok:$markDuplicates --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//buildBamIndex=${stringarray[-1]}
-//echo $buildBamIndex >> $ID.log
-//echo "BUILDBAMINDEX: " $buildBamIndex
-//echo "BuildBamIndex Submitted"
-//
-//com="cd $FWD && \ 
-//rm ${ID}_sorted_reads.bam && \
-//module load $GATK && \
-//java -jar $GATK_JAR \
-//-T RealignerTargetCreator \
-//-R $REF \
-//-I ${ID}_dedup_reads.bam \
-//-o ${ID}_realignment_targets.list"
-//response=\
-//$(sbatch -J $ID.realignTargetCreator -o $ID.realignTargetCreator.out -e $ID.realignTargetCreator.err --dependency=afterok:$buildBamIndex:$getMetrics --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//realignTargetCreator=${stringarray[-1]}
-//echo $realignTargetCreator >> $ID.log
-//echo "REALIGNTARGETCREATOR: " $realignTargetCreator
-//echo "RealignTargetCreator Submitted"
-//
-//com="cd $FWD && \
-//module load $GATK && \
-//java -jar $GATK_JAR \
-//-T IndelRealigner \
-//-R $REF \
-//-I ${ID}_dedup_reads.bam \
-//-targetIntervals ${ID}_realignment_targets.list \
-//-o ${ID}_realigned_reads.bam"
-//response=\
-//$(sbatch -J $ID.realignIndels -o $ID.realignIndels.out -e $ID.realignIndels.err --dependency=afterok:$realignTargetCreator --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//realignIndels=${stringarray[-1]}
-//echo $realignIndels >> $ID.log
-//echo "REALIGNINDELS: " $realignIndels
-//echo "RealignIndels Submitted"	
-//}
-//
-//}
-//
-//
-//
-//	## CALL WORKFLOW
-//	pre_process # Only Done Once
+//  preprocessing
 //	call_variants 1 # Call Variants Round 1
 //	extract_snps 1 # Round 1. Extracts snps AND indels, separately
 //	filter_snps 1 # Round 1
@@ -157,12 +32,135 @@ process preprocess_alignment {
 //	parse_metrics
 //	do_snpeff
 //done
-//
-//
-//
-//
-//
-//call_variants(){
+
+process align_to_reference {
+    echo true
+    input:
+        set val(pair_id), file(reads) from input_fastqs
+        each reference_prefix
+    output:
+        set val(pair_id), file("aligned_reads.sam") into aligned_reads
+    script:
+    """
+    module load ${params.modules.BWA}
+    bwa mem -M -R "@RG\\tID:${pair_id}\\tLB:${pair_id}\\tPL:${params.sequencing_platform}\\tPM:${params.sequencing_machine}\\tSM:${pair_id}" \
+        ${reference_prefix} ${reads[0]} ${reads[1]} > \
+        aligned_reads.sam
+    """
+}
+
+process sort_and_bamize {
+    echo true
+    input:
+        set val(pair_id), file(aligned_reads) from aligned_reads
+    output:
+        set val(pair_id), file("aligned_reads.bam") \
+            into aligned_reads_sorted
+    script:
+    """
+    module load ${params.modules.PICARD}
+    java -jar ${params.modules.PICARD_JAR} SortSam \
+        INPUT=${aligned_reads} OUTPUT=aligned_reads.bam \
+        SORT_ORDER=coordinate
+    """
+}
+
+aligned_reads_sorted.into { aligned_reads_sorted_metrics; aligned_reads_sorted_duplicates }
+
+process collect_alignment_metrics {
+    echo true
+    publishDir "./output", mode: "copy"
+    input:
+        set val(pair_id), file(aligned_reads) \
+            from aligned_reads_sorted_metrics
+        each reference_prefix
+    output:
+        set val(pair_id), file("${pair_id}_alignment_metrics.txt"), \
+            file("${pair_id}_insert_metrics.txt"), \
+            file("${pair_id}_insert_size_histogram.pdf"), \
+            file("${pair_id}_depth_out.txt") \
+            into alignment_metrics
+    script:
+    """
+    module load ${params.modules.PICARD}
+    module load ${params.modules.R}
+    module load ${params.modules.SAMTOOLS}
+    java -jar ${params.modules.PICARD_JAR} \
+        CollectAlignmentSummaryMetrics R=${reference_prefix} \
+        I=${aligned_reads} O=${pair_id}_alignment_metrics.txt
+    java -jar ${params.modules.PICARD_JAR} \
+        CollectInsertSizeMetrics \
+        INPUT=${aligned_reads} OUTPUT=${pair_id}_insert_metrics.txt \
+        HISTOGRAM_FILE=${pair_id}_insert_size_histogram.pdf 
+    samtools depth -a ${aligned_reads} > ${pair_id}_depth_out.txt
+    """
+}
+
+process mark_duplicates {
+    echo true
+    publishDir "./output", mode: "copy", pattern: "*_metrics_dedup.txt"
+    input:
+        set val(pair_id), file(aligned_reads) \
+            from aligned_reads_sorted_duplicates 
+    output:
+        set val(pair_id), file("${pair_id}_reads_dedup.bam"), \
+            file("${pair_id}_reads_dedup.bai") \
+            into aligned_reads_deduplicated
+    script:
+    """
+    module load ${params.modules.PICARD}
+    java -jar ${params.modules.PICARD_JAR} MarkDuplicates \
+        INPUT=${aligned_reads} OUTPUT=${pair_id}_reads_dedup.bam \
+        METRICS_FILE=${pair_id}_metrics_dedup.txt
+    java -jar ${params.modules.PICARD_JAR} BuildBamIndex \
+        INPUT=${pair_id}_reads_dedup.bam
+    """
+}
+
+process realign_around_indels {
+    echo true
+    input:
+        set val(pair_id), file(reads_dedup), file(reads_dedup_index) \
+            from aligned_reads_deduplicated
+        each reference_prefix
+    output:
+        set val(pair_id), val(1), \
+            file("${pair_id}_realigned_reads.bam") \
+            into realigned_around_indels
+    script:
+    """
+    module load ${params.modules.GATK}
+    java -jar ${params.modules.GATK_JAR} -T RealignerTargetCreator \
+        -R ${reference_prefix} \
+        -I ${reads_dedup} \
+        -o ${pair_id}_realignment_targets.list
+    java -jar ${params.modules.GATK_JAR} -T IndelRealigner \
+        -R ${reference_prefix} \
+        -I ${reads_dedup} \
+        -targetIntervals ${pair_id}_realignment_targets.list \
+        -o ${pair_id}_realigned_reads.bam"
+    """
+}
+
+//process call_variants {
+//    echo true
+//    input:
+//        set val(pair_id), val(round), file(input_bam)
+//            from input_to_call_variants
+//        each reference_prefix
+//    output:
+//        set val(pair_id), val(round), file("${pair_id}_variants.vcf")
+//            into variants_called
+//    script:
+//    """
+//    module load ${params.modules.GATK}
+//    java -jar ${params.modules.GATK_JAR} -T HaplotypeCaller \
+//        -R ${reference_prefix} \
+//        -I ${input_bam} \
+//        -o ${pair_id}_variants.vcf
+//    """
+//}
+
 //	ROUND=$1
 //	if [[ $ROUND -eq 1 ]];then
 //		INPUT=${ID}_realigned_reads.bam
@@ -174,21 +172,7 @@ process preprocess_alignment {
 //		OUTPUT=${ID}_raw_variants_recal.vcf
 //		AFTEROK=$applyBqsr
 //	fi
-//
-//com="cd $FWD && \
-//module load $GATK && \
-//java -jar $GATK_JAR \
-//-T HaplotypeCaller \
-//-R $REF \
-//-I $INPUT \
-//-o $OUTPUT" 
-//response=\
-//$(sbatch -J $ID.callVariants$ROUND -o $ID.callVariants$ROUND.out -e $ID.callVariants$ROUND.err --dependency=afterok:$AFTEROK --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//callVariants=${stringarray[-1]}
-//echo $callVariants >> $ID.log
-//echo "CALLVARIANTS: " $callVariants
-//echo "Variant Calling Round $ROUND Submitted"
+
 //	
 //	if [[ $ROUND -eq 1 ]];then
 //		callVariants_1=$callVariants
@@ -197,53 +181,35 @@ process preprocess_alignment {
 //		callVariants_2=$callVariants
 //	fi
 //}
-//
-//## extracts snps AND indels into seperate vcf files
-//extract_snps(){
-//        ROUND=$1
-//        if [[ $ROUND -eq 1 ]];then
-//		V=${ID}_raw_variants.vcf
-//		OS=${ID}_raw_snps.vcf
-//		OI=${ID}_raw_indels.vcf
-//		AFTEROK=$callVariants_1
-//        fi
-//        if [[ $ROUND -eq 2 ]];then
-//		V=${ID}_raw_variants_recal.vcf
-//		OS=${ID}_raw_snps_recal.vcf
-//		OI=${ID}_raw_indels_recal.vcf
-//		AFTEROK=$callVariants_2
-//        fi
-//		
-//com="cd $FWD &&\
-//module load $GATK && \
-//java -jar $GATK_JAR \
-//-T SelectVariants \
-//-R $REF \
-//-V $V \
-//-selectType SNP \
-//-o $OS && \
-//java -jar $GATK_JAR \
-//-T SelectVariants \
-//-R $REF \
-//-V $V \
-//-selectType INDEL \
-//-o $OI"
-//response=\
-//$(sbatch -J $ID.extractSnps$ROUND -o $ID.extractSnps$ROUND.out -e $ID.extractSnps$ROUND.err --dependency=afterok:$AFTEROK --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//extractSnps=${stringarray[-1]}
-//echo $extractSnps >> $ID.log
-//echo "EXTRACTSNPS: " $extractSnps
-//echo "Extract SNPs Round $ROUND Submitted"
-//
-//        if [[ $ROUND -eq 1 ]];then
-//                extractSnps_1=$extractSnps
-//        fi
-//        if [[ $ROUND -eq 2 ]];then
-//                extractSnps_2=$extractSnps
-//        fi
+
+
+//process extract_snps_and_indels {
+//    echo true
+//    input:
+//        set val(pair_id), val(round), file(variants)
+//            from variants_called
+//        each reference_prefix
+//    output:
+//        set val(pair_id), val(round), file("${pair_id}_variants.vcf")
+//            into variants_called
+//    script:
+//    """
+//    module load ${params.modules.GATK}
+//    java -jar ${params.modules.GATK_JAR} -T SelectVariants \
+//        -R ${reference_prefix} \
+//        -V ${variants} \
+//        -selectType SNP \
+//        -o ${pair_id}_snps_round${round}.vcf
+//    java -jar ${params.modules.GATK_JAR} -T SelectVariants \
+//        -R ${reference_prefix} \
+//        -V ${variants} \
+//        -selectType INDEL \
+//        -o ${pair_id}_indel_round${round}.vcf
+//    """
 //}
-//
+
+
+
 //filter_snps(){
 //        ROUND=$1
 //        if [[ $ROUND -eq 1 ]];then
@@ -287,7 +253,7 @@ process preprocess_alignment {
 //                filterSnps_2=$filterSnps
 //        fi
 //}
-//
+
 //filter_indels(){
 //        ROUND=$1
 //        if [[ $ROUND -eq 1 ]];then
@@ -323,7 +289,7 @@ process preprocess_alignment {
 //echo "Filter Indels Round $ROUND Submitted"
 //
 //}
-//
+
 //do_bqsr(){
 //	#todo: knownSites input shouldnt be full raw_variants.vcf file but only the TOP variants!
 //	ROUND=$1
@@ -363,7 +329,7 @@ process preprocess_alignment {
 //		bqsr_2=$bqsr
 //	fi
 //}
-//
+
 //analyze_covariates(){
 //com="cd $FWD && \
 //module load $GATK && \
@@ -382,7 +348,7 @@ process preprocess_alignment {
 //echo "ANALYZECOVARIATES: " $analyzeCovariates
 //echo "AnalyzeCovariates Submitted"
 //}
-//
+
 //apply_bqsr(){
 //com="cd $FWD && \
 //rm ${ID}_dedup_reads.bam ${ID}_dedup_reads.bai && \
@@ -401,7 +367,7 @@ process preprocess_alignment {
 //echo "APPLYBQSR: " $applyBqsr
 //echo "Apply BQSR Submitted"
 //}
-//
+
 //parse_metrics(){
 //com="cd $FWD && \
 //module load $BEDTOOLS && \
@@ -415,7 +381,7 @@ process preprocess_alignment {
 //echo "PARSEMETRICS: " $parseMetrics
 //echo "ParseMetrics Submitted"
 //}
-//
+
 //do_snpeff(){
 //com="cd $FWD && \
 //module load $SNPEFF && \
