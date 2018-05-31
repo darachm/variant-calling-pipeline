@@ -22,6 +22,7 @@ process preprocess_alignment {
         set val(pair_id), file(reads) from input_fastqs
     output:
 //        set val(pair_id), file("aligned_reads.sam"), into aligned_reads
+        file("aligned_reads.sam") into aligned_reads
     script:
     """
 #    module load ${params.bwa_module}
