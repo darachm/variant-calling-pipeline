@@ -141,8 +141,9 @@ process realign_around_indels {
 //    .choice(input_to_call_variants,downstream)
 //    { a -> a[1] == 1 ? 0 : 1 }
 
-( input_to_call_variants, input_to_base_recalibration ) =
-    realigned_around_indels.into(2)
+( input_to_call_variants, input_to_base_recalibration, 
+    input_to_actual_recalibration ) =
+    realigned_around_indels.into(3)
 
 process call_variants {
     input:
@@ -257,12 +258,15 @@ process base_recalibrator {
     """
 }
 
+(bqsr_recalibrated_covariate, bqsr_recalibrated_apply ) =
+    bqsr_recalibrated.into(2)
+
 process covariates_analyzer {
     publishDir "./output", mode: "copy"
     input:
         set val(pair_id), file(first_recal_table),
             file(second_recal_table)
-            from bqsr_recalibrated
+            from bqsr_recalibrated_covariate
     output:
         set val(pair_id), file("${pair_id}_recalibration_plots.pdf"),
             into covariates_analyzed
@@ -278,24 +282,26 @@ process covariates_analyzer {
     """
 }
 
-//apply_bqsr(){
-//com="cd $FWD && \
-//rm ${ID}_dedup_reads.bam ${ID}_dedup_reads.bai && \
-//module load $GATK && \
-//java -jar $GATK_JAR \
-//-T PrintReads \
-//-R $REF \
-//-I ${ID}_realigned_reads.bam \
-//-BQSR ${ID}_recal_data.table \
-//-o ${ID}_recal_reads.bam"
-//response=\
-//$(sbatch -J $ID.applyBqsr -o $ID.applyBqsr.out -e $ID.applyBqsr.err --dependency=afterok:$bqsr_2 --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//applyBqsr=${stringarray[-1]}
-//echo $applyBqsr >> $ID.log
-//echo "APPLYBQSR: " $applyBqsr
-//echo "Apply BQSR Submitted"
-//}
+process apply_bqsr {
+    input:
+        set val(pair_id), file(first_recal_table),
+            file(second_recal_table)
+            from bqsr_recalibrated_apply
+        set val(pair_id), val(round), file(input_bam) \
+            from input_to_actual_recalibration
+    output:
+        set val(pair_id), file("${pair_id}_recalibrated.bam") \
+            into bqsr_recalibrated_reads
+    script:
+    """
+    module load ${params.modules.GATK}
+    java -jar ${params.modules.GATK_JAR} -T PrintReads \
+        -R ${params.reference_prefix} \
+        -I ${input_bam} \
+        -BQSR ${first_recal_table} \
+        -o ${pair_id}_recalibrated.bam
+    """
+}
 
 //parse_metrics(){
 //com="cd $FWD && \
