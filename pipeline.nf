@@ -17,20 +17,19 @@ file("./reports").mkdirs()
 println(input_fastqs)
 
 process preprocess_alignment {
-    input:
-//        set val(pair_id), file(reads) from input_fastqs
-        val reads from input_fastqs
-    output:
-        set val(pair_id), file("aligned_reads.sam"), into aligned_reads
-    script:
     echo true
+    input:
+        set val(pair_id), file(reads) from input_fastqs
+    output:
+//        set val(pair_id), file("aligned_reads.sam"), into aligned_reads
+    script:
     """
-    echo ${reads}
-#    module load ${process.bwa_module}
-#    bwa mem -M -R '@RG\tID:${pair_id}\tLB:${pair_id}\tPL:${params.sequencing_platform}\tPM:${params.sequencing_machine}\tSM:${pair_id}'\
-#        params.reference_fasta ${reads[0]} ${reads[1]} > \
-#        aligned_reads.sam
+#    module load ${params.bwa_module}
+    echo ${pair_id} ${reads}
     """
+//    bwa mem -M -R '@RG\tID:${pair_id}\tLB:${pair_id}\tPL:${params.sequencing_platform}\tPM:${params.sequencing_machine}\tSM:${pair_id}'\
+//        params.reference_fasta ${reads[0]} ${reads[1]} > \
+//        aligned_reads.sam
 //stringarray=($response)
 //alignment=${stringarray[-1]}
 //echo $alignment > $ID.log

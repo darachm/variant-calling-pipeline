@@ -24,6 +24,8 @@ params {
     reference_fasta = "/scratch/work/cgsb/reference_genomes/Public/Fungi/Saccharomyces_cerevisiae/R64-1-1/Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa"
 // find the below by executing (TODO COPY THAT HERE)
     snpeff_database = "Saccharomyces_cerevisiae"
+
+    bwa_module = "bwa/intel/0.7.15"
 }
 
 // This defines the resource paramters for various 'executor's
@@ -58,10 +60,10 @@ process {
 //SNPEFF_JAR='/share/apps/snpeff/4.3i/snpEff.jar'
 
     withName: preprocess_alignment {
+        executor="local"
         cpus="1"
         time="10m" // default was 4 hours
-        memory="8GB"
-        bwa_module = "bwa/intel/0.7.15"
+        memory="4GB"
     }
 }
 
