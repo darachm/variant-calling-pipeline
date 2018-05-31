@@ -11,31 +11,27 @@ input_fastqs = Channel
     { file -> file.getBaseName() - ~/_n0[12]/ - ~/.fastq/ }
     .ifEmpty{ error "couldn't find those fastqs!" }
 
+reference_prefix = Channel.fromPath(params.reference_prefix)
+
 file("./output").mkdirs()
 file("./reports").mkdirs()
-
-println(input_fastqs)
 
 process preprocess_alignment {
     echo true
     input:
         set val(pair_id), file(reads) from input_fastqs
+        each reference_prefix
     output:
-//        set val(pair_id), file("aligned_reads.sam"), into aligned_reads
-        file("aligned_reads.sam") into aligned_reads
+        set val(pair_id), file("aligned_reads.sam") into aligned_reads
     script:
     """
-#    module load ${params.bwa_module}
-    echo ${pair_id} ${reads}
+    module load ${params.bwa_module}
+    echo "beginning alignment of ${pair_id}"
+    bwa mem -M -R '@RG\tID:${pair_id}\tLB:${pair_id}\tPL:${params.sequencing_platform}\tPM:${params.sequencing_machine}\tSM:${pair_id}'\
+        ${reference_prefix} ${reads[0]} ${reads[1]} > \
+        aligned_reads.sam
+    echo "finished alignment of ${pair_id}"
     """
-//    bwa mem -M -R '@RG\tID:${pair_id}\tLB:${pair_id}\tPL:${params.sequencing_platform}\tPM:${params.sequencing_machine}\tSM:${pair_id}'\
-//        params.reference_fasta ${reads[0]} ${reads[1]} > \
-//        aligned_reads.sam
-//stringarray=($response)
-//alignment=${stringarray[-1]}
-//echo $alignment > $ID.log
-//echo "ALIGNMENT: " $alignment
-//echo "Alignment Submitted"
 }
 
 
