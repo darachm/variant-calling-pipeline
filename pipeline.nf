@@ -257,25 +257,26 @@ process base_recalibrator {
     """
 }
 
-
-//analyze_covariates(){
-//com="cd $FWD && \
-//module load $GATK && \
-//module load $R && \
-//java -jar $GATK_JAR \
-//-T AnalyzeCovariates \
-//-R $REF \
-//-before ${ID}_recal_data.table \
-//-after ${ID}_post_recal_data.table \
-//-plots ${ID}_recalibration_plots.pdf"
-//response=\
-//$(sbatch -J $ID.analyzeCovariates -o $ID.analyzeCovariates.out -e $ID.analyzeCovariates.err --dependency=afterok:$bqsr_2 --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//analyzeCovariates=${stringarray[-1]}
-//echo $analyzeCovariates >> $ID.log
-//echo "ANALYZECOVARIATES: " $analyzeCovariates
-//echo "AnalyzeCovariates Submitted"
-//}
+process covariates_analyzer {
+    publishDir "./output", mode: "copy"
+    input:
+        set val(pair_id), file(first_recal_table),
+            file(second_recal_table)
+            from bqsr_recalibrated
+    output:
+        set val(pair_id), file("${pair_id}_recalibration_plots.pdf"),
+            into covariates_analyzed
+    script:
+    """
+    module load ${params.modules.GATK}
+    module load ${params.modules.R}
+    java -jar ${params.modules.GATK_JAR} -T AnalyzeCovariates \
+        -R ${params.reference_prefix} \
+        -before ${first_recal_table} \
+        -after ${second_recal_table} \
+        -plots ${pair_id}_recalibration_plots.pdf
+    """
+}
 
 //apply_bqsr(){
 //com="cd $FWD && \

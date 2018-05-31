@@ -121,6 +121,12 @@ process {
         memory="8GB"
     }
 
+    withName: covariates_analyzer {
+        cpus="1"
+        time="2m"
+        memory="8GB"
+    }
+
 }
 
 // This defines reports and instrumentation stuff.
