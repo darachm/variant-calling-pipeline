@@ -13,10 +13,12 @@
 // 'params' are variables that will be accessible the script, using
 // that prefix as `params.`
 params {
+
     email_address = "${USER}@nyu.edu"
     experiment_name = "untitled-in-config-file"
     sequencing_platform = "illumina"
     sequencing_machine = "nextseq"
+
 // NOTE that this is how you specify the files you're going to run on.
 // It is a glob, meaning it's got a wildcard in there. BECAUSE of 
 // that, it REQUIRES single quotes to intepret that too soon.
@@ -24,12 +26,15 @@ params {
 // it in here.
 //    fastq_files_glob = '/scratch/cgsb/gencore/out/Gresham/2015-10-23_HK5NHBGXX/lib1-26/*'
     fastq_files_glob = 'test_inputs/*'
+
 // This refers to the prefix fasta that's going to be used by BWA
     reference_prefix = "/scratch/work/cgsb/genomes/Public/Fungi/Saccharomyces_cerevisiae/Ensembl/R64-1-1/Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa"
+
 // find the below by executing (TODO COPY THAT HERE)
     snpeff_database = "Saccharomyces_cerevisiae"
 
-// Below are the various modules to be loaded
+// Below are the various modules to be loaded, or paths to jars.
+// I put the jars in the modules thing.
     modules { 
         BWA        = "bwa/intel/0.7.15" 
         BEDTOOLS   = "bedtools/intel/2.26.0"
@@ -60,6 +65,9 @@ executor {
 }
 
 // TODO implement singularity containers
+// TODO implement profiles for different executors, maybe a long
+// trial-run mode that can be used to instrument one sample, then
+// settings can be adjusted for running on many samples
 
 // This defines the resources per-process (each type of block or step
 // executed)
@@ -122,6 +130,24 @@ process {
     }
 
     withName: covariates_analyzer {
+        cpus="1"
+        time="2m"
+        memory="8GB"
+    }
+
+    withName: apply_bqsr {
+        cpus="1"
+        time="2m"
+        memory="8GB"
+    }
+
+    withName: final_metrics {
+        cpus="1"
+        time="2m"
+        memory="8GB"
+    }
+
+    withName: snpeff {
         cpus="1"
         time="2m"
         memory="8GB"

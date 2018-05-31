@@ -303,37 +303,43 @@ process apply_bqsr {
     """
 }
 
-//parse_metrics(){
-//com="cd $FWD && \
-//module load $BEDTOOLS && \
-//bedtools genomecov -bga -ibam ${ID}_recal_reads.bam > ${ID}_genomecov.bedgraph && \
-//sh /scratch/work/cgsb/scripts/variant_calling/parse_metrics.sh $ID"
-//response=\
-//$(sbatch -J $ID.parseMetrics -o $ID.parseMetrics.out -e $ID.parseMetrics.err --dependency=afterok:$filterSnps_2 --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//parseMetrics=${stringarray[-1]}
-//echo $parseMetrics >> $ID.log
-//echo "PARSEMETRICS: " $parseMetrics
-//echo "ParseMetrics Submitted"
-//}
+process final_metrics {
+    publishDir "./output", mode: "copy"
+    input:
+        set val(pair_id), file(recalibrated_bam) \
+            from bqsr_recalibrated_reads
+        set val(pair_id), file(first_recal_table),
+            file(second_recal_table)
+            from bqsr_recalibrated_apply
+        set val(pair_id), val(round), file(input_bam) \
+            from input_to_actual_recalibration
+    output:
+        set val(pair_id), file("${pair_id}_genomecov.bedgraph") \
+            into final_metrics_output
+    script:
+    """
+    module load ${params.modules.BEDTOOLS}
+    bedtools genomecov -bga -ibam ${recalibrated_bam} > \
+        ${pair_id}_genomecov.bedgraph 
+    #sh ./parse_metrics.sh ${pair_id}"
+    """
+}
 
-//do_snpeff(){
-//com="cd $FWD && \
-//module load $SNPEFF && \
-//java -jar $SNPEFF_JAR \
-//-v $SNPEFF_DB \
-//${ID}_filtered_snps_final.vcf > ${ID}_filtered_snps_final.ann.vcf"
-//response=\
-//$(sbatch -J $ID.snpEff -o $ID.snpEff.out -e $ID.snpEff.err --dependency=afterok:$filterSnps_2 --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//snpEff=${stringarray[-1]}
-//echo $snpEff >> $ID.log
-//echo "SNPEFF: " $snpEff
-//echo "SnpEFF submitted"
-//}
-//
-//## Build Report Header and Create File
-//REPORT_HEADER="ID,# reads,aligned reads,% aligned,aligned bases,read length,% paired,mean insert size,# SNPs 1,# SNPs 1 filtered,# SNPs 2, # SNPs filtered 2,average coverage"
-//echo $REPORT_HEADER > report.csv
-//
-//
+process snpeff {
+    publishDir "./output", mode: "copy"
+    input:
+        set val(pair_id), file(final_variants) \
+            from final_variant_calls
+    output:
+        set val(pair_id), 
+            file("${pair_id}_filtered_snps_final.ann.vcf") \
+            into final_variant_output
+    script:
+    """
+    module load ${params.modules.SNPEFF}
+    java -jar ${params.modules.SNPEFF_JAR} \
+        -v ${params.snpeff_database} ${final_variants} > \
+        ${pair_id}_filtered_snps_final.ann.vcf"
+    """
+}
+
