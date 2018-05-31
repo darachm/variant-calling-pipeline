@@ -108,6 +108,19 @@ process {
         time="2m"
         memory="8GB"
     }
+
+    withName: filter_snps_and_indels {
+        cpus="1"
+        time="2m"
+        memory="8GB"
+    }
+
+    withName: base_recalibrator {
+        cpus="1"
+        time="2m"
+        memory="8GB"
+    }
+
 }
 
 // This defines reports and instrumentation stuff.

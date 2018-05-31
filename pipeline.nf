@@ -135,12 +135,14 @@ process realign_around_indels {
     """
 }
 
-input_to_call_variants = Channel.create()
-downstream = Channel.create()
+//input_to_call_variants = Channel.create()
+//downstream = Channel.create()
+//realigned_around_indels
+//    .choice(input_to_call_variants,downstream)
+//    { a -> a[1] == 1 ? 0 : 1 }
 
-realigned_around_indels
-    .choice(input_to_call_variants,downstream)
-    { a -> a[1] == 1 ? 0 : 1 }
+( input_to_call_variants, input_to_base_recalibration ) =
+    realigned_around_indels.into(2)
 
 process call_variants {
     input:
@@ -171,7 +173,7 @@ process extract_snps_and_indels {
         set val(pair_id), \
             file("${pair_id}_snps_round${round}.vcf"), \
             file("${pair_id}_indel_round${round}.vcf") \
-            into variants_reported
+            into variants_extracted
     script:
     """
     module load ${params.modules.GATK}
@@ -197,7 +199,7 @@ process filter_snps_and_indels {
         set val(pair_id), 
             file("${pair_id}_filtered_snps_round${round}.vcf"), \
             file("${pair_id}_filtered_indels_round${round}.vcf") \
-            into variants_reported
+            into variants_filtered
     script:
     """
     module load ${params.modules.GATK}
@@ -226,46 +228,35 @@ process filter_snps_and_indels {
     """
 }
 
-
-//do_bqsr(){
+process base_recalibrator {
+    publishDir "./output", mode: "copy"
+    input:
+        set val(pair_id), val(round), file(input_bam) \
+            from input_to_base_recalibration
+        set val(pair_id), file(filtered_snps), file(filtered_indels) \
+            from variants_filtered
+    output:
+        set val(pair_id), file("first_recal_data.table"),
+            file("second_recal_data.table")
+            into bqsr_recalibrated
 //	#todo: knownSites input shouldnt be full raw_variants.vcf file but only the TOP variants!
-//	ROUND=$1
-//	if [[ $ROUND -eq 1 ]];then
-//		POST=''
-//		OUT=${ID}_recal_data.table
-//		AFTEROK="$filterSnps_1:$filterIndels"
-//	fi
-//	if [[ $ROUND -eq 2 ]];then
-//		POST='-BQSR '${ID}_recal_data.table
-//		OUT=${ID}_post_recal_data.table
-//		AFTEROK=$bqsr_1
-//	fi
-//
-//com="cd $FWD && \
-//module load $GATK && \
-//java -jar $GATK_JAR \
-//-T BaseRecalibrator \
-//-R $REF \
-//-I ${ID}_realigned_reads.bam \
-//-knownSites ${ID}_filtered_snps.vcf \
-//-knownSites ${ID}_filtered_indels.vcf \
-//$POST \
-//-o $OUT"
-//response=\
-//$(sbatch -J $ID.bqsr$ROUND -o $ID.bqsr$ROUND.out -e $ID.bqsr$ROUND.err --dependency=afterok:$AFTEROK --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//bqsr=${stringarray[-1]}
-//echo $bqsr >> $ID.log
-//echo "BQSR: " $bqsr
-//echo "BQSR Round $ROUND Submitted"
-//
-//	if [[ $ROUND -eq 1 ]];then
-//		bqsr_1=$bqsr
-//	fi
-//	if [[ $ROUND -eq 2 ]];then
-//		bqsr_2=$bqsr
-//	fi
-//}
+    script:
+    """
+    module load ${params.modules.GATK}
+    java -jar ${params.modules.GATK_JAR} -T BaseRecalibrator \
+        -R ${params.reference_prefix} \
+        -I ${input_bam} \
+        -knownSites ${filtered_snps} -knownSites ${filtered_indels} \
+        -o first_recal_data.table
+    java -jar ${params.modules.GATK_JAR} -T BaseRecalibrator \
+        -R ${params.reference_prefix} \
+        -I ${input_bam} \
+        -knownSites ${filtered_snps} -knownSites ${filtered_indels} \
+        -BQSR first_recal_data.table
+        -o second_recal_data.table
+    """
+}
+
 
 //analyze_covariates(){
 //com="cd $FWD && \
