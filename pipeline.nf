@@ -11,10 +11,9 @@ input_fastqs = Channel
     { file -> file.getBaseName() - ~/_n0[12]/ - ~/.fastq/ }
     .ifEmpty{ error "couldn't find those fastqs!" }
 
-reference_prefix = Channel.fromPath(params.reference_prefix)
-
 file("./output").mkdirs()
 file("./reports").mkdirs()
+
 
 //  preprocessing
 //	call_variants 1 # Call Variants Round 1
@@ -37,14 +36,13 @@ process align_to_reference {
     echo true
     input:
         set val(pair_id), file(reads) from input_fastqs
-        each reference_prefix
     output:
         set val(pair_id), file("aligned_reads.sam") into aligned_reads
     script:
     """
     module load ${params.modules.BWA}
     bwa mem -M -R "@RG\\tID:${pair_id}\\tLB:${pair_id}\\tPL:${params.sequencing_platform}\\tPM:${params.sequencing_machine}\\tSM:${pair_id}" \
-        ${reference_prefix} ${reads[0]} ${reads[1]} > \
+        ${params.reference_prefix} ${reads[0]} ${reads[1]} > \
         aligned_reads.sam
     """
 }
@@ -65,17 +63,17 @@ process sort_and_bamize {
     """
 }
 
-aligned_reads_sorted.into { aligned_reads_sorted_metrics; aligned_reads_sorted_duplicates }
+( aligned_reads_sorted_metrics, aligned_reads_sorted_duplicates ) =
+   aligned_reads_sorted.into(2)
 
 process collect_alignment_metrics {
-    echo true
     publishDir "./output", mode: "copy"
     input:
         set val(pair_id), file(aligned_reads) \
             from aligned_reads_sorted_metrics
-        each reference_prefix
     output:
-        set val(pair_id), file("${pair_id}_alignment_metrics.txt"), \
+        set val(pair_id), 
+            file("${pair_id}_alignment_metrics.txt"), \
             file("${pair_id}_insert_metrics.txt"), \
             file("${pair_id}_insert_size_histogram.pdf"), \
             file("${pair_id}_depth_out.txt") \
@@ -86,7 +84,7 @@ process collect_alignment_metrics {
     module load ${params.modules.R}
     module load ${params.modules.SAMTOOLS}
     java -jar ${params.modules.PICARD_JAR} \
-        CollectAlignmentSummaryMetrics R=${reference_prefix} \
+        CollectAlignmentSummaryMetrics R=${params.reference_prefix} \
         I=${aligned_reads} O=${pair_id}_alignment_metrics.txt
     java -jar ${params.modules.PICARD_JAR} \
         CollectInsertSizeMetrics \
@@ -97,8 +95,7 @@ process collect_alignment_metrics {
 }
 
 process mark_duplicates {
-    echo true
-    publishDir "./output", mode: "copy", pattern: "*_metrics_dedup.txt"
+    publishDir "./output", mode: "copy", pattern: "*.txt"
     input:
         set val(pair_id), file(aligned_reads) \
             from aligned_reads_sorted_duplicates 
@@ -122,7 +119,6 @@ process realign_around_indels {
     input:
         set val(pair_id), file(reads_dedup), file(reads_dedup_index) \
             from aligned_reads_deduplicated
-        each reference_prefix
     output:
         set val(pair_id), val(1), \
             file("${pair_id}_realigned_reads.bam") \
@@ -131,23 +127,25 @@ process realign_around_indels {
     """
     module load ${params.modules.GATK}
     java -jar ${params.modules.GATK_JAR} -T RealignerTargetCreator \
-        -R ${reference_prefix} \
+        -R ${params.reference_prefix} \
         -I ${reads_dedup} \
         -o ${pair_id}_realignment_targets.list
     java -jar ${params.modules.GATK_JAR} -T IndelRealigner \
-        -R ${reference_prefix} \
+        -R ${params.reference_prefix} \
         -I ${reads_dedup} \
         -targetIntervals ${pair_id}_realignment_targets.list \
-        -o ${pair_id}_realigned_reads.bam"
+        -o ${pair_id}_realigned_reads.bam
     """
 }
+
+realigned_around_indels.subscribe{println it}
+realigned_around_indels.filter{it[1] < 5}.subscribe{println it}
 
 //process call_variants {
 //    echo true
 //    input:
 //        set val(pair_id), val(round), file(input_bam)
 //            from input_to_call_variants
-//        each reference_prefix
 //    output:
 //        set val(pair_id), val(round), file("${pair_id}_variants.vcf")
 //            into variants_called
@@ -155,40 +153,17 @@ process realign_around_indels {
 //    """
 //    module load ${params.modules.GATK}
 //    java -jar ${params.modules.GATK_JAR} -T HaplotypeCaller \
-//        -R ${reference_prefix} \
+//        -R ${params.reference_prefix} \
 //        -I ${input_bam} \
 //        -o ${pair_id}_variants.vcf
 //    """
 //}
-
-//	ROUND=$1
-//	if [[ $ROUND -eq 1 ]];then
-//		INPUT=${ID}_realigned_reads.bam
-//		OUTPUT=${ID}_raw_variants.vcf
-//		AFTEROK=$realignIndels
-//	fi
-//	if [[ $ROUND -eq 2 ]];then
-//		INPUT=${ID}_recal_reads.bam
-//		OUTPUT=${ID}_raw_variants_recal.vcf
-//		AFTEROK=$applyBqsr
-//	fi
-
-//	
-//	if [[ $ROUND -eq 1 ]];then
-//		callVariants_1=$callVariants
-//	fi
-//	if [[ $ROUND -eq 2 ]];then
-//		callVariants_2=$callVariants
-//	fi
-//}
-
-
+//
 //process extract_snps_and_indels {
 //    echo true
 //    input:
 //        set val(pair_id), val(round), file(variants)
 //            from variants_called
-//        each reference_prefix
 //    output:
 //        set val(pair_id), val(round), file("${pair_id}_variants.vcf")
 //            into variants_called
@@ -196,18 +171,22 @@ process realign_around_indels {
 //    """
 //    module load ${params.modules.GATK}
 //    java -jar ${params.modules.GATK_JAR} -T SelectVariants \
-//        -R ${reference_prefix} \
+//        -R ${params.reference_prefix} \
 //        -V ${variants} \
 //        -selectType SNP \
 //        -o ${pair_id}_snps_round${round}.vcf
 //    java -jar ${params.modules.GATK_JAR} -T SelectVariants \
-//        -R ${reference_prefix} \
+//        -R ${params.reference_prefix} \
 //        -V ${variants} \
 //        -selectType INDEL \
 //        -o ${pair_id}_indel_round${round}.vcf
 //    """
 //}
 
+//source = Channel.from 'Hello world', 'Hola', 'Hello John'
+//queue1 = Channel.create()
+//queue2 = Channel.create()
+//source.choice( queue1, queue2 ) { a -> a =~ /^Hello.*/ ? 0 : 1 }
 
 
 //filter_snps(){

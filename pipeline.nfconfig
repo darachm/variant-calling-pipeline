@@ -87,13 +87,13 @@ process {
 
     withName: mark_duplicates {
         cpus="1"
-        time="2m" // default was 4 hours
+        time="1m" // default was 4 hours
         memory="8GB"
     }
 
     withName: realign_around_indels {
         cpus="1"
-        time="2m"
+        time="1m"
         memory="8GB"
     }
 
