@@ -1,0 +1,50 @@
+// These are comments.
+
+// This defines the resource paramters for various 'executor's
+executor {
+    $local { // This defines running without job submission
+        cpus = 1, memory = '4GB'
+    }
+    $slurm {// This defines a variable that's appended to the sbatch
+            // submission (I believe), so change the email if you
+            // are using a different system
+        clusterOptions='--mail-type=BEGIN,END,FAIL --mail-user=$USER@nyu.edu'
+    }
+    // TODO enter other executor types? PBS?
+}
+
+// TODO implement singularity containers
+
+// This defines the resources per-process (each type of block or step
+// executed)
+process {
+    executor="slurm" // Sets default to slurm, just in case
+
+    $joba{
+        cpus='1'
+        time='1h'
+        memory='16GB'
+    }
+}
+
+// This defines reports and instrumentation stuff.
+// It will write even if there's a file there, and will move that
+// pre-existing file to a later number, so 'foo.txt' to 'foo.txt.1',
+// then 'foo.txt.1' to 'foo.txt.2' (I believe).
+trace { // This is tracing each step
+    enabled = true
+    file = "reports/nextflow_pipeline_trace.txt"
+    fields = "task_id,name,status,exit,realtime,%cpu,rss"
+}
+report { // This is a pretty report
+    enabled = true
+    file = "reports/nextflow_report.html"
+}
+timeline { // This is a pretty cool graphic
+    enabled = true
+    file = "reports/nextflow_timeline.html"
+}
+dag { // Graph of what's done
+    enabled = true
+    file = "reports/nextflow_dag.png"
+}
