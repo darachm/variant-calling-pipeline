@@ -33,7 +33,6 @@ file("./reports").mkdirs()
 //done
 
 process align_to_reference {
-    echo true
     input:
         set val(pair_id), file(reads) from input_fastqs
     output:
@@ -48,7 +47,6 @@ process align_to_reference {
 }
 
 process sort_and_bamize {
-    echo true
     input:
         set val(pair_id), file(aligned_reads) from aligned_reads
     output:
@@ -115,7 +113,6 @@ process mark_duplicates {
 }
 
 process realign_around_indels {
-    echo true
     input:
         set val(pair_id), file(reads_dedup), file(reads_dedup_index) \
             from aligned_reads_deduplicated
@@ -138,136 +135,97 @@ process realign_around_indels {
     """
 }
 
-realigned_around_indels.subscribe{println it}
-realigned_around_indels.filter{it[1] < 5}.subscribe{println it}
+input_to_call_variants = Channel.create()
+downstream = Channel.create()
 
-//process call_variants {
-//    echo true
-//    input:
-//        set val(pair_id), val(round), file(input_bam)
-//            from input_to_call_variants
-//    output:
-//        set val(pair_id), val(round), file("${pair_id}_variants.vcf")
-//            into variants_called
-//    script:
-//    """
-//    module load ${params.modules.GATK}
-//    java -jar ${params.modules.GATK_JAR} -T HaplotypeCaller \
-//        -R ${params.reference_prefix} \
-//        -I ${input_bam} \
-//        -o ${pair_id}_variants.vcf
-//    """
-//}
-//
-//process extract_snps_and_indels {
-//    echo true
-//    input:
-//        set val(pair_id), val(round), file(variants)
-//            from variants_called
-//    output:
-//        set val(pair_id), val(round), file("${pair_id}_variants.vcf")
-//            into variants_called
-//    script:
-//    """
-//    module load ${params.modules.GATK}
-//    java -jar ${params.modules.GATK_JAR} -T SelectVariants \
-//        -R ${params.reference_prefix} \
-//        -V ${variants} \
-//        -selectType SNP \
-//        -o ${pair_id}_snps_round${round}.vcf
-//    java -jar ${params.modules.GATK_JAR} -T SelectVariants \
-//        -R ${params.reference_prefix} \
-//        -V ${variants} \
-//        -selectType INDEL \
-//        -o ${pair_id}_indel_round${round}.vcf
-//    """
-//}
+realigned_around_indels
+    .choice(input_to_call_variants,downstream)
+    { a -> a[1] == 1 ? 0 : 1 }
 
-//source = Channel.from 'Hello world', 'Hola', 'Hello John'
-//queue1 = Channel.create()
-//queue2 = Channel.create()
-//source.choice( queue1, queue2 ) { a -> a =~ /^Hello.*/ ? 0 : 1 }
+process call_variants {
+    input:
+        set val(pair_id), val(round), file(input_bam) \
+            from input_to_call_variants
+    output:
+        set val(pair_id), val(round), file("${pair_id}_variants.vcf")\
+            into variants_called
+    script:
+    """
+    module load ${params.modules.GATK}
+    java -jar ${params.modules.GATK_JAR} -T HaplotypeCaller \
+        -R ${params.reference_prefix} \
+        -I ${input_bam} \
+        -o ${pair_id}_variants.vcf
+    """
+}
 
+( variants_called_for_extracting, variants_called_for_filtering) = 
+   variants_called.into(2)
 
-//filter_snps(){
-//        ROUND=$1
-//        if [[ $ROUND -eq 1 ]];then
-//                V=${ID}_raw_snps.vcf
-//		O=${ID}_filtered_snps.vcf
-//                AFTEROK=$extractSnps_1
-//        fi
-//        if [[ $ROUND -eq 2 ]];then
-//                V=${ID}_raw_snps_recal.vcf
-//                O=${ID}_filtered_snps_final.vcf
-//                AFTEROK=$extractSnps_2
-//        fi
-//
-//com="cd $FWD && \
-//module load $GATK && \
-//java -jar $GATK_JAR \
-//-T VariantFiltration \
-//-R $REF \
-//-V $V \
-//-filterName \"QD_filter\" \
-//-filter \"QD < 2.0\" \
-//-filterName \"FS_filter\" \
-//-filter \"FS > 60.0\" \
-//-filterName \"MQ_filter\" \
-//-filter \"MQ < 40.0\" \
-//-filterName \"SOR_filter\" \
-//-filter \"SOR > 4.0\" \
-//-o $O"
-//response=\
-//$(sbatch -J $ID.filterSnps$ROUND -o $ID.filterSnps$ROUND.out -e $ID.filterSnps$ROUND.err --dependency=afterok:$AFTEROK --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//filterSnps=${stringarray[-1]}
-//echo $filterSnps >> $ID.log
-//echo "FILTEREDSNPS: " $filterSnps
-//echo "Filter SNPs Round $ROUND Submitted"
-//
-//        if [[ $ROUND -eq 1 ]];then
-//                filterSnps_1=$filterSnps
-//        fi
-//        if [[ $ROUND -eq 2 ]];then
-//                filterSnps_2=$filterSnps
-//        fi
-//}
+process extract_snps_and_indels {
+    publishDir "./output", mode: "copy"
+    input:
+        set val(pair_id), val(round), file(variants) \
+            from variants_called_for_extracting
+    output:
+        set val(pair_id), \
+            file("${pair_id}_snps_round${round}.vcf"), \
+            file("${pair_id}_indel_round${round}.vcf") \
+            into variants_reported
+    script:
+    """
+    module load ${params.modules.GATK}
+    java -jar ${params.modules.GATK_JAR} -T SelectVariants \
+        -R ${params.reference_prefix} \
+        -V ${variants} \
+        -selectType SNP \
+        -o ${pair_id}_snps_round${round}.vcf
+    java -jar ${params.modules.GATK_JAR} -T SelectVariants \
+        -R ${params.reference_prefix} \
+        -V ${variants} \
+        -selectType INDEL \
+        -o ${pair_id}_indel_round${round}.vcf
+    """
+}
 
-//filter_indels(){
-//        ROUND=$1
-//        if [[ $ROUND -eq 1 ]];then
-//                V=${ID}_raw_indels.vcf
-//                O=${ID}_filtered_indels.vcf
-//                AFTEROK=$extractSnps_1
-//        fi
-//        if [[ $ROUND -eq 2 ]];then
-//                V=${ID}_raw_indels_recal.vcf
-//                O=${ID}_filtered_indels_final.vcf
-//                AFTEROK=$extractSnps_2
-//        fi
-//
-//com="cd $FWD && \
-//module load $GATK && \
-//java -jar $GATK_JAR \
-//-T VariantFiltration \
-//-R $REF \
-//-V $V \
-//-filterName \"QD_filter\" \
-//-filter \"QD < 2.0\" \
-//-filterName \"FS_filter\" \
-//-filter \"FS > 200.0\" \
-//-filterName \"SOR_filter\" \
-//-filter \"SOR > 10.0\" \
-//-o $O"
-//response=\
-//$(sbatch -J $ID.filterIndels$ROUND -o $ID.filterIndels$ROUND.out -e $ID.filterIndels$ROUND.err --dependency=afterok:$AFTEROK --kill-on-invalid-dep=yes --mail-user=$EMAIL --mail-type=FAIL --nodes=1 -t 4:00:00 --mem=60000 --wrap="$com")
-//stringarray=($response)
-//filterIndels=${stringarray[-1]}
-//echo $filterIndels >> $ID.log
-//echo "FILTEREDINDELS: " $filterIndels
-//echo "Filter Indels Round $ROUND Submitted"
-//
-//}
+process filter_snps_and_indels {
+    publishDir "./output", mode: "copy"
+    input:
+        set val(pair_id), val(round), file(variants) \
+            from variants_called_for_filtering
+    output:
+        set val(pair_id), 
+            file("${pair_id}_filtered_snps_round${round}.vcf"), \
+            file("${pair_id}_filtered_indels_round${round}.vcf") \
+            into variants_reported
+    script:
+    """
+    module load ${params.modules.GATK}
+    java -jar ${params.modules.GATK_JAR} -T VariantFiltration \
+        -R ${params.reference_prefix} \
+        -V ${variants} \
+        -filterName \"QD_filter\" \
+        -filter \"QD < 2.0\" \
+        -filterName \"FS_filter\" \
+        -filter \"FS > 60.0\" \
+        -filterName \"MQ_filter\" \
+        -filter \"MQ < 40.0\" \
+        -filterName \"SOR_filter\" \
+        -filter \"SOR > 4.0\" \
+        -o ${pair_id}_filtered_snps_round${round}.vcf
+    java -jar ${params.modules.GATK_JAR} -T VariantFiltration \
+        -R ${params.reference_prefix} \
+        -V ${variants} \
+        -filterName \"QD_filter\" \
+        -filter \"QD < 2.0\" \
+        -filterName \"FS_filter\" \
+        -filter \"FS > 200.0\" \
+        -filterName \"SOR_filter\" \
+        -filter \"SOR > 10.0\" \
+        -o ${pair_id}_filtered_indels_round${round}.vcf
+    """
+}
+
 
 //do_bqsr(){
 //	#todo: knownSites input shouldnt be full raw_variants.vcf file but only the TOP variants!
