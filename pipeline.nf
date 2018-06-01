@@ -122,7 +122,7 @@ process realign_around_indels {
     output:
         set val(pair_id), val(1), \
             file("${pair_id}_realigned_reads.bam") \
-            into realignedBam
+            into realignedBam_first_output
     script:
     """
     module load ${params.modules.GATK}
@@ -138,13 +138,16 @@ process realign_around_indels {
     """
 }
 
-realignedBam_for_recalibration = Channel.create()
-realignedBam_for_reporting     = Channel.create()
+realignedBam_for_recalibration        = Channel.create()
+realignedBam_for_reporting            = Channel.create()
+realignedBam_for_variant_calling      = Channel.create()
+realignedBam_for_base_recalibration   = Channel.create()
+realignedBam_for_actual_recalibration = Channel.create()
 
-realignedBam
+realignedBam_first_output
     .tap(realignedBam_for_variant_calling)
-    .choice(realignedBam_for_recalibration,realignedBam_for_reporting)
-    { a -> a[1] > 1 ? 0 : 1 }
+    .tap(realignedBam_for_recalibration)
+
 
 realignedBam_for_recalibration
     .tap(realignedBam_for_base_recalibration)
@@ -166,6 +169,9 @@ process call_variants {
         -o ${pair_id}_variants.vcf
     """
 }
+calledVariants_for_extracting = Channel.create()
+calledVariants_for_filtering = Channel.create()
+calledVariants_final = Channel.create()
 calledVariants
     .tap(calledVariants_for_extracting)
     .tap(calledVariants_for_filtering)
@@ -235,10 +241,8 @@ process filter_snps_and_indels {
         -o ${pair_id}_filtered_indels_round${round}.vcf
     """
 }
-
 filteredVariants_for_recalibration = Channel.create()
 filteredVariants_for_final_report  = Channel.create()
-
 filteredVariants
     .choice(filteredVariants_for_recalibration,
         filteredVariants_for_final_report)
@@ -253,8 +257,8 @@ process base_recalibrator {
             file(filtered_snps), file(filtered_indels) \
             from filteredVariants_for_recalibration
     output:
-        set val(pair_id), file("first_recal_data.table"),
-            file("second_recal_data.table")
+        set val(pair_id), file("first_recal_data.table"), \
+            file("second_recal_data.table") \
             into bqsrOutputs
 //	#todo: knownSites input shouldnt be full raw_variants.vcf file but only the TOP variants!
     script:
@@ -273,7 +277,8 @@ process base_recalibrator {
         -o second_recal_data.table
     """
 }
-
+bqsrOutputs_for_covariate = Channel.create()
+bqsrOutputs_for_apply = Channel.create()
 bqsrOutputs
     .tap(bqsrOutputs_for_covariate)
     .tap(bqsrOutputs_for_apply)
@@ -281,11 +286,11 @@ bqsrOutputs
 process covariates_analyzer {
     publishDir "./output", mode: "copy"
     input:
-        set val(pair_id), file(first_recal_table),
-            file(second_recal_table)
+        set val(pair_id), file(first_recal_table), \
+            file(second_recal_table) \
             from bqsrOutputs_for_covariate
     output:
-        set val(pair_id), file("${pair_id}_recalibration_plots.pdf"),
+        set val(pair_id), file("${pair_id}_recalibration_plots.pdf") \
             into analyzedCovariates_output 
     script:
     """
@@ -309,7 +314,7 @@ process apply_bqsr {
     output:
         set val(pair_id), val(2), \
             file("${pair_id}_recalibrated.bam") \
-            into realignedBam
+            into realignedBam_second_pass
     script:
     """
     module load ${params.modules.GATK}
@@ -320,6 +325,103 @@ process apply_bqsr {
         -o ${pair_id}_recalibrated.bam
     """
 }
+
+realignedBam_second_pass
+
+process call_variants2 {
+    input:
+        set val(pair_id), val(round), file(input_bam) \
+            from realignedBam_second_pass
+    output:
+        set val(pair_id), val(round), file("${pair_id}_variants.vcf")\
+            into calledVariants2
+    script:
+    """
+    module load ${params.modules.GATK}
+    java -jar ${params.modules.GATK_JAR} -T HaplotypeCaller \
+        -R ${params.reference_prefix} \
+        -I ${input_bam} \
+        -o ${pair_id}_variants.vcf
+    """
+}
+calledVariants2_for_extracting = Channel.create()
+calledVariants2_for_filtering = Channel.create()
+calledVariants2_final = Channel.create()
+calledVariants2
+    .tap(calledVariants2_for_extracting)
+    .tap(calledVariants2_for_filtering)
+    .filter{it[1] == 2}
+    .tap(calledVariants2_final)
+//    .filter{it[1] == 1}
+//    .tap(calledVariants_for_base_recalibration)
+process extract_snps_and_indels2 {
+    publishDir "./output", mode: "copy"
+    input:
+        set val(pair_id), val(round), file(variants) \
+            from calledVariants2_for_extracting
+    output:
+        set val(pair_id), val(round), \
+            file("${pair_id}_snps_round${round}.vcf"), \
+            file("${pair_id}_indel_round${round}.vcf") \
+            into extractedVariants2
+    script:
+    """
+    module load ${params.modules.GATK}
+    java -jar ${params.modules.GATK_JAR} -T SelectVariants \
+        -R ${params.reference_prefix} \
+        -V ${variants} \
+        -selectType SNP \
+        -o ${pair_id}_snps_round${round}.vcf
+    java -jar ${params.modules.GATK_JAR} -T SelectVariants \
+        -R ${params.reference_prefix} \
+        -V ${variants} \
+        -selectType INDEL \
+        -o ${pair_id}_indel_round${round}.vcf
+    """
+}
+process filter_snps_and_indels2 {
+    publishDir "./output", mode: "copy"
+    input:
+        set val(pair_id), val(round), file(variants) \
+            from calledVariants2_for_filtering
+    output:
+        set val(pair_id), val(round), 
+            file("${pair_id}_filtered_snps_round${round}.vcf"), \
+            file("${pair_id}_filtered_indels_round${round}.vcf") \
+            into filteredVariants2
+    script:
+    """
+    module load ${params.modules.GATK}
+    java -jar ${params.modules.GATK_JAR} -T VariantFiltration \
+        -R ${params.reference_prefix} \
+        -V ${variants} \
+        -filterName \"QD_filter\" \
+        -filter \"QD < 2.0\" \
+        -filterName \"FS_filter\" \
+        -filter \"FS > 60.0\" \
+        -filterName \"MQ_filter\" \
+        -filter \"MQ < 40.0\" \
+        -filterName \"SOR_filter\" \
+        -filter \"SOR > 4.0\" \
+        -o ${pair_id}_filtered_snps_round${round}.vcf
+    java -jar ${params.modules.GATK_JAR} -T VariantFiltration \
+        -R ${params.reference_prefix} \
+        -V ${variants} \
+        -filterName \"QD_filter\" \
+        -filter \"QD < 2.0\" \
+        -filterName \"FS_filter\" \
+        -filter \"FS > 200.0\" \
+        -filterName \"SOR_filter\" \
+        -filter \"SOR > 10.0\" \
+        -o ${pair_id}_filtered_indels_round${round}.vcf
+    """
+}
+filteredVariants2_for_recalibration = Channel.create()
+filteredVariants2_for_final_report  = Channel.create()
+filteredVariants2
+    .choice(filteredVariants2_for_recalibration,
+        filteredVariants2_for_final_report)
+    { a -> a[1] > 1 ? 0 : 1 }
 
 process final_metrics {
     publishDir "./output", mode: "copy"
