@@ -21,9 +21,9 @@ params {
 // that, it REQUIRES single quotes to intepret that too soon.
 // TEST your glob on the command line with 'ls', then copy and paste 
 // it in here.
-//    fastq_files_glob = '/scratch/cgsb/gencore/out/Gresham/2015-10-23_HK5NHBGXX/lib1-26/*'
+    fastq_files_glob = '/scratch/cgsb/gencore/out/Gresham/2015-10-23_HK5NHBGXX/lib1-26/*'
 //    fastq_files_glob = '/scratch/cgsb/gencore/out/Gresham/2015-10-23_HK5NHBGXX/lib1-26/*_n0[12]_ntr_[12].fastq.gz'
-    fastq_files_glob = 'test_inputs/*'
+//    fastq_files_glob = 'test_inputs/*'
 
 // This refers to the prefix fasta that's going to be used by BWA
     reference_prefix = "/scratch/work/cgsb/genomes/Public/Fungi/Saccharomyces_cerevisiae/Ensembl/R64-1-1/Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa"
