@@ -1,7 +1,4 @@
 // These are comments. 
-// Ignore me, this block is for vim users to set syntax right:
-// vim: syntax=groovy
-// -*- mode: groovy;-*-
 
 // This document is the configuration file. Things can be defined in
 // different scopes. For example, 'params.variable = "x" ' and 
@@ -25,8 +22,8 @@ params {
 // TEST your glob on the command line with 'ls', then copy and paste 
 // it in here.
 //    fastq_files_glob = '/scratch/cgsb/gencore/out/Gresham/2015-10-23_HK5NHBGXX/lib1-26/*'
-    fastq_files_glob = '/scratch/cgsb/gencore/out/Gresham/2015-10-23_HK5NHBGXX/lib1-26/*_n0[12]_ntr_[12].fastq.gz'
-//    fastq_files_glob = 'test_inputs/*'
+//    fastq_files_glob = '/scratch/cgsb/gencore/out/Gresham/2015-10-23_HK5NHBGXX/lib1-26/*_n0[12]_ntr_[12].fastq.gz'
+    fastq_files_glob = 'test_inputs/*'
 
 // This refers to the prefix fasta that's going to be used by BWA
     reference_prefix = "/scratch/work/cgsb/genomes/Public/Fungi/Saccharomyces_cerevisiae/Ensembl/R64-1-1/Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa"
@@ -60,7 +57,7 @@ executor {
     $slurm {// This defines a variable that's appended to the sbatch
             // submission (I believe), so change the email if you
             // are using a different system
-        clusterOptions='--mail-type=BEGIN,END,FAIL --mail-user=$USER@nyu.edu'
+        clusterOptions="--mail-type=BEGIN,END,FAIL --mail-user=$USER@nyu.edu"
     }
     // TODO enter other executor types? PBS?
 }
@@ -78,68 +75,68 @@ process {
 
     withName: align_to_reference {
         cpus="4"
-        time="30m"
+        time="5m"
         memory="8GB"
     }
 
     withName: sort_and_bamize {
         cpus="1"
         time="10m"
-        memory="8GB"
+        memory="60GB"
     }
 
     withName: collect_alignment_metrics {
         cpus="1"
-        time="10m"
-        memory="8GB"
+        time="5m"
+        memory="60GB"
     }
 
     withName: mark_duplicates {
         cpus="1"
-        time="30m"
+        time="15m"
         memory="60GB"
     }
 
     withName: realign_around_indels {
         cpus="1"
-        time="30m"
-        memory="16GB"
+        time="15m"
+        memory="60GB"
     }
 
     withName: call_variants {
         cpus="1"
-        time="30m"
-        memory="8GB"
+        time="2h"
+        memory="60GB"
     }
 
     withName: extract_snps_and_indels {
         cpus="1"
-        time="30m"
-        memory="8GB"
+        time="5m"
+        memory="60GB"
     }
 
     withName: filter_snps_and_indels {
         cpus="1"
-        time="30m"
-        memory="8GB"
+        time="5m"
+        memory="4GB"
     }
 
     withName: base_recalibrator {
         cpus="1"
-        time="1h"
-        memory="30GB"
+        time="30m"
+        memory="60GB"
     }
 
     withName: covariates_analyzer {
         cpus="1"
-        time="1h"
-        memory="30GB"
+        time="5m"
+        memory="60GB"
     }
 
     withName: apply_bqsr {
         cpus="1"
-        time="30m"
-        memory="30GB"
+        time="20m"
+        memory="60GB"
     }
 
     withName: final_metrics {
@@ -150,8 +147,8 @@ process {
 
     withName: snpeff {
         cpus="1"
-        time="30m"
-        memory="30GB"
+        time="5m"
+        memory="60GB"
     }
 
 }
@@ -178,3 +175,6 @@ dag { // Graph of what's done
     file = "reports/nextflow_dag.png"
 }
 
+// Ignore me, this block is for vim users to set syntax right:
+// vim: syntax=groovy
+// -*- mode: groovy;-*-

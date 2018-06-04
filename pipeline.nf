@@ -305,8 +305,8 @@ process base_recalibrator {
             val(round2), file(filtered_snps), file(filtered_indels) \
             from bam_and_variants_for_recalibration
     output:
-        set val(pair_id), file("first_recal_data.table"), \
-            file("second_recal_data.table") \
+        set val(pair_id), file("${pair_id}_first_recal_data.table"), \
+            file("${pair_id}_second_recal_data.table") \
             into bqsr_outputs 
 // todo from the bash script: 
 //	#todo: knownSites input shouldnt be full raw_variants.vcf file but only the TOP variants!
@@ -317,13 +317,13 @@ process base_recalibrator {
         -R ${params.reference_prefix} \
         -I ${input_bam} \
         -knownSites ${filtered_snps} -knownSites ${filtered_indels} \
-        -o first_recal_data.table
+        -o ${pair_id}_first_recal_data.table
     java -jar ${params.modules.GATK_JAR} -T BaseRecalibrator \
         -R ${params.reference_prefix} \
         -I ${input_bam} \
         -knownSites ${filtered_snps} -knownSites ${filtered_indels} \
-        -BQSR first_recal_data.table \
-        -o second_recal_data.table
+        -BQSR ${pair_id}_first_recal_data.table \
+        -o ${pair_id}_second_recal_data.table
     """
 }
 
@@ -382,22 +382,22 @@ process apply_bqsr {
 
 // This still needs to be debugged, and the parse_metrics script 
 // re-writen.
-//process final_metrics {
-//    publishDir "./output", mode: "copy"
-//    input:
-//        set val(pair_id), val(round), file(recalibrated_bam) \
-//            from bams_for_reporting 
-//    output:
-//        set val(pair_id), file("${pair_id}_round${round}_genomecov.bedgraph") \
-//            into output_bedgraph
-//    script:
-//    """
-//    module load ${params.modules.BEDTOOLS}
-//    bedtools genomecov -bga -ibam ${recalibrated_bam} > \
-//        ${pair_id}_round${round}_ genomecov.bedgraph 
-//    #sh ./parse_metrics.sh ${pair_id}"
-//    """
-//}
+process final_metrics {
+    publishDir "./output", mode: "copy"
+    input:
+        set val(pair_id), val(round), file(recalibrated_bam) \
+            from bams_for_reporting 
+    output:
+        set val(pair_id), file("${pair_id}_round${round}_genomecov.bedgraph") \
+            into output_bedgraph
+    script:
+    """
+    module load ${params.modules.BEDTOOLS}
+    bedtools genomecov -bga -ibam ${recalibrated_bam} > \
+        ${pair_id}_round${round}_genomecov.bedgraph 
+    #sh ./parse_metrics.sh ${pair_id}"
+    """
+}
 
 // This runs the SNPEFF step, waiting for variants from the second
 // round before running.
@@ -408,7 +408,9 @@ process snpeff {
             from called_variants_for_reporting
     output:
         set val(pair_id), val(round),
-            file("${pair_id}_filtered_snps_final.ann.vcf") \
+            file("${pair_id}_filtered_snps_final.ann.vcf"), \
+            file("${pair_id}_snpEff_genes.txt"), \
+            file("${pair_id}_snpEff_summary.html") \
             into called_variants_output
     script:
     """
@@ -416,6 +418,8 @@ process snpeff {
     java -jar ${params.modules.SNPEFF_JAR} \
         -v ${params.snpeff_database} ${final_variants} > \
         ${pair_id}_filtered_snps_final.ann.vcf
+    cp snpEff_genes.txt ${pair_id}_snpEff_genes.txt
+    cp snpEff_summary.html ${pair_id}_snpEff_summary.html
     """
 }
 
