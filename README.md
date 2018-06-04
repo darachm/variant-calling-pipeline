@@ -6,4 +6,5 @@ and description forthcoming. Refer to the upstream repo for all the
 real thinking and biological rationale for everything. This is just
 the plumbing part.
 
-![nextflow dag](./nextflow_dag.png)
+![nextflow dag](https://i.imgur.com/1x8RCRw.png)
+
