@@ -57,7 +57,7 @@ executor {
     $slurm {// This defines a variable that's appended to the sbatch
             // submission (I believe), so change the email if you
             // are using a different system
-        clusterOptions="--mail-type=BEGIN,END,FAIL --mail-user=$USER@nyu.edu"
+        clusterOptions="--mail-type=BEGIN,END,FAIL --mail-user=dhm267@nyu.edu"
     }
     // TODO enter other executor types? PBS?
 }
@@ -75,31 +75,31 @@ process {
 
     withName: align_to_reference {
         cpus="4"
-        time="5m"
+        time="20m"
         memory="8GB"
     }
 
     withName: sort_and_bamize {
         cpus="1"
-        time="10m"
+        time="30m"
         memory="60GB"
     }
 
     withName: collect_alignment_metrics {
         cpus="1"
-        time="5m"
+        time="10m"
         memory="60GB"
     }
 
     withName: mark_duplicates {
         cpus="1"
-        time="15m"
+        time="30m"
         memory="60GB"
     }
 
     withName: realign_around_indels {
         cpus="1"
-        time="15m"
+        time="30m"
         memory="60GB"
     }
 
@@ -111,31 +111,31 @@ process {
 
     withName: extract_snps_and_indels {
         cpus="1"
-        time="5m"
+        time="10m"
         memory="60GB"
     }
 
     withName: filter_snps_and_indels {
         cpus="1"
-        time="5m"
+        time="10m"
         memory="4GB"
     }
 
     withName: base_recalibrator {
         cpus="1"
-        time="30m"
+        time="1h"
         memory="60GB"
     }
 
     withName: covariates_analyzer {
         cpus="1"
-        time="5m"
+        time="10m"
         memory="60GB"
     }
 
     withName: apply_bqsr {
         cpus="1"
-        time="20m"
+        time="30m"
         memory="60GB"
     }
 
@@ -147,7 +147,7 @@ process {
 
     withName: snpeff {
         cpus="1"
-        time="5m"
+        time="10m"
         memory="60GB"
     }
 
