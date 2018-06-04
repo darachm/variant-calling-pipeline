@@ -1,9 +1,8 @@
 # variant-calling-pipeline
-HPC based pipeline for variant calling using GATK
+HPC based pipeline for variant calling using GATK.
 
-This script demonstrates using shell scripting and Slurm to create an HPC pipeline for variant detection using GATK. An article which describes the analysis can be found here: https://gencore.bio.nyu.edu/variant-calling-pipeline/
+This is in the process of being rewritten in nextflow. Nice diagram
+and description forthcoming. Refer to the upstream repo for all the
+real thinking and biological rationale for everything. This is just
+the plumbing part.
 
-Overview of the workflow:
-
-
-![Workflow](https://gencore.bio.nyu.edu/wp-content/uploads/2016/03/VariantCallingWorkflow-Updated.jpg)

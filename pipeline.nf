@@ -44,7 +44,7 @@ process align_to_reference {
     script:
     """
     module load ${params.modules.BWA}
-    bwa mem -M -t ${process.cpus} \
+    bwa mem -M -t ${task.cpus} \
         -R "@RG\\tID:${pair_id}\\tLB:${pair_id}\\tPL:${params.sequencing_platform}\\tPM:${params.sequencing_machine}\\tSM:${pair_id}" \
         ${params.reference_prefix} ${reads[0]} ${reads[1]} > \
         aligned_reads.sam
