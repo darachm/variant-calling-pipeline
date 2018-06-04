@@ -5,15 +5,27 @@
 // You should configure everything in the '*.nfconfig' file, not here.
 // TODO put all config in this file?
 
+// This is first a channel we're going to use later to count the 
+// inputs. More details later.
+input_count_channel = Channel.create()
+
 // This block uses the 'params.fastq_files_glob' to find fastq files.
 // It then uses the size parameter to not auto-group, and instead uses
 // the mapping through '.getBaseName()' and subtracts two regexs to
-// trim that name down to an ID string. '.ifEmpty', it reports an 
-// error.
+// trim that name down to an ID string. Then it uses 'tap' to copy
+// it into the 'input_count_channel'. '.ifEmpty', it reports an error.
 input_fastqs = Channel
     .fromFilePairs( params.fastq_files_glob , size: -1)
     { file -> file.getBaseName() - ~/_n0[12]/ - ~/.fastq/ }
+    .tap(input_count_channel)
     .ifEmpty{ error "couldn't find those fastqs!" }
+
+// Now, we make an variable, then 'subscribe' to the input count
+// channel. This consumes the channel, so that's why we're using a
+// 'tap'ed copy. Everytime something comes through, we increment it
+// by one to count it.
+input_count = 0
+input_count_channel.subscribe({ input_count += 1 })
 
 // These are two directories for outputs and reports.
 file("./output").mkdirs()
@@ -150,9 +162,13 @@ bams_for_actual_recalibration = Channel.create()
 bam_recalibrated_qualitites  = Channel.create()
 
 // Here we actually 'mix' in the bams with recalibrated quality 
-// scores. Note that everything is a 'set' with the second position
+// scores.  Note that everything is a 'set' with the second position
 // (as 1, they are 0-indexed) value as the rounds (1-indexed for the
-// end-users)
+// end-users). This always 'tap's the channel as a copy into a bam
+// for variant calling and a dummy copy for something later.
+// Then, it runs a closure in the curly braces. If we are on round 1,
+// so the current set called 'it' has the second value 'it[1]' equal
+// to 1, then this is filtered into the bams for recalibrations.
 bams_to_work_on_first_input.mix(bam_recalibrated_qualitites)
     .tap(bams_for_variant_calling)
     .tap(bams_for_variant_calling_tmp)
@@ -160,11 +176,16 @@ bams_to_work_on_first_input.mix(bam_recalibrated_qualitites)
     .tap(bams_for_base_recalibration)
     .tap(bams_for_actual_recalibration)
 
+// Here we used that dummy variable to make a bam channel for final
+// bedgraph generation, if we are on round 2. Everything a channel is
+// used, it is consumed, so this is why we need a dummy copy before
+// filtering it.
 bams_for_reporting = Channel.create()
 bams_for_variant_calling_tmp
     .filter({ it[1] == 2 })
     .tap(bams_for_reporting)
 
+// On everything, we call variants.
 process call_variants {
     input:
         set val(pair_id), val(round), file(input_bam) \
@@ -182,6 +203,10 @@ process call_variants {
     """
 }
 
+// We then do a similar thing as before. We make a few channels,
+// then 'tap' into them, then 'filter', then 'tap' if it passes that
+// 'filter'. This way, the variants are called and filtered on both
+// rounds, but only the final round has the variant files for snpeff.
 called_variants_for_extracting = Channel.create()
 called_variants_for_filtering = Channel.create()
 called_variants_for_reporting = Channel.create()
@@ -191,6 +216,8 @@ called_variants
     .filter({ it[1] == 2 })
     .tap(called_variants_for_reporting)
 
+// Extract snp and indel variants, publish the files by copying to
+// output directory.
 process extract_snps_and_indels {
     publishDir "./output", mode: "copy"
     input:
@@ -216,6 +243,9 @@ process extract_snps_and_indels {
         -o ${pair_id}_indel_round${round}.vcf
     """
 }
+
+// And this filters them. It also outputs a channel of the filtered
+// variants for use by the recalibration steps.
 process filter_snps_and_indels {
     publishDir "./output", mode: "copy"
     input:
@@ -254,9 +284,19 @@ process filter_snps_and_indels {
     """
 }
 
+// Now, we make a copy of these filtered variants that were done on
+// the first round. 
+filtered_variants_for_recalibration = filtered_variants
+    .filter({it[1] == 1})
+// Then we join the bams allocated for the recalibration with these
+// filtered first round of variants. By default it joins on the value
+// in the first position of the set, but here I've just done that
+// same thing explicity by setting the 'by' parameter. 
+// NOTE the colon, not =.
 bam_and_variants_for_recalibration = bams_for_base_recalibration
-    .join(filtered_variants)
+    .join(filtered_variants_for_recalibration, by: 0)
 
+// Then we can apply the base recalibrator.
 process base_recalibrator {
     publishDir "./output", mode: "copy"
     input:
@@ -267,6 +307,7 @@ process base_recalibrator {
         set val(pair_id), file("first_recal_data.table"), \
             file("second_recal_data.table") \
             into bqsr_outputs 
+// todo from the bash script: 
 //	#todo: knownSites input shouldnt be full raw_variants.vcf file but only the TOP variants!
     script:
     """
@@ -285,9 +326,11 @@ process base_recalibrator {
     """
 }
 
+// Then we need to split ths output because it's consumed each time.
 ( bqsr_outputs_for_covariate, bqsr_outputs_for_apply 
     ) = bqsr_outputs.into(2)
 
+// Here's the covariates analysis.
 process covariates_analyzer {
     publishDir "./output", mode: "copy"
     input:
@@ -309,9 +352,13 @@ process covariates_analyzer {
     """
 }
 
+// Then to apply the actual recalibration we join the bams allocated
+// to the bqsr outputs, and that's joined on that ID variable in the
+// first position.
 bam_and_bqsr_for_actual_recalibration = bams_for_actual_recalibration
     .join(bqsr_outputs_for_apply)
 
+// Then we apply the recalibration.
 process apply_bqsr {
     input:
         set val(pair_id), val(round), file(input_bam), \
@@ -332,6 +379,8 @@ process apply_bqsr {
     """
 }
 
+// This still needs to be debugged, and the parse_metrics script 
+// re-writen.
 //process final_metrics {
 //    publishDir "./output", mode: "copy"
 //    input:
@@ -349,6 +398,8 @@ process apply_bqsr {
 //    """
 //}
 
+// This runs the SNPEFF step, waiting for variants from the second
+// round before running.
 process snpeff {
     publishDir "./output", mode: "copy"
     input:
@@ -363,9 +414,29 @@ process snpeff {
     module load ${params.modules.SNPEFF}
     java -jar ${params.modules.SNPEFF_JAR} \
         -v ${params.snpeff_database} ${final_variants} > \
-        ${pair_id}_filtered_snps_final.ann.vcf"
+        ${pair_id}_filtered_snps_final.ann.vcf
     """
 }
+
+// This part is essential for the looping. When we used 'mix' above,
+// nextflow left the channel open. Here, we count the outputs by
+// using subscribe. In that same closure, then we test if the output
+// count is equal to the input count. If so, then we send the close()
+// signal to the channel that's left open. Because we also 'tap'ed 
+// that to other channels, we also need to close those. Then it
+// should hang a bit, then close when it's decided that the flow is
+// over.
+output_count = 0
+called_variants_output.subscribe({ 
+        output_count += 1 ; 
+        if (output_count == input_count) {
+            bams_to_work_on_first_input.close()
+            bams_for_variant_calling.close()
+            bams_for_variant_calling_tmp.close()
+            bams_for_base_recalibration.close()
+            bams_for_actual_recalibration.close()
+        }
+    })
 
 // The next two lines are for vim to use the right syntax highlighting
 // vim: syntax=groovy
