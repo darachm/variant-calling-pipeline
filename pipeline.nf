@@ -1,45 +1,34 @@
 #!/usr/bin/env nextflow
 
-// This is a comment.
-// vim: syntax=groovy
-// -*- mode: groovy;-*-
+// This is a comment. I like to comment before the line it refers to.
 
 // You should configure everything in the '*.nfconfig' file, not here.
+// TODO put all config in this file?
 
-inputFastqs = Channel
-    .fromFilePairs(params.fastq_files_glob,size: -1)
+// This block uses the 'params.fastq_files_glob' to find fastq files.
+// It then uses the size parameter to not auto-group, and instead uses
+// the mapping through '.getBaseName()' and subtracts two regexs to
+// trim that name down to an ID string. '.ifEmpty', it reports an 
+// error.
+input_fastqs = Channel
+    .fromFilePairs( params.fastq_files_glob , size: -1)
     { file -> file.getBaseName() - ~/_n0[12]/ - ~/.fastq/ }
     .ifEmpty{ error "couldn't find those fastqs!" }
 
+// These are two directories for outputs and reports.
 file("./output").mkdirs()
 file("./reports").mkdirs()
 
-//  preprocessing
-//
-//	call_variants 1 # Call Variants Round 1
-//	extract_snps 1 # Round 1. Extracts snps AND indels, separately
-//	filter_snps 1 # Round 1
-//	filter_indels 1 # Round 1
-//
-//	do_bqsr 1 # Do BQSR Round 1
-//	do_bqsr 2 # Do BQSR Round 2
-//
-//	analyze_covariates # Only Done Once
-//	apply_bqsr # Only Done Once
-//
-//	call_variants 2 # Call Variants Round 2
-//	extract_snps 2 # Round 2. Extracts snps AND indels, separately
-//	filter_snps 2 # Round 2
-//	filter_indels 2 # Round 2
-//
-//	parse_metrics
-//	do_snpeff
-
+// The first process takes the raw input fastqs and aligns them to
+// the reference to make a sam file.
+// Note that the ID used to group the paired-end reads is kept in the
+// first position. Because of this, most of the channels are 'set's
+// of 'val'ues and 'file's. 
 process align_to_reference {
     input:
-        set val(pair_id), file(reads) from inputFastqs
+        set val(pair_id), file(reads) from input_fastqs
     output:
-        set val(pair_id), file("aligned_reads.sam") into alignedSam
+        set val(pair_id), file("aligned_reads.sam") into aligned_sam
     script:
     """
     module load ${params.modules.BWA}
@@ -49,12 +38,13 @@ process align_to_reference {
     """
 }
 
+// The sam file is sorted into a bam file.
 process sort_and_bamize {
     input:
-        set val(pair_id), file(aligned_reads) from alignedSam
+        set val(pair_id), file(aligned_reads) from aligned_sam
     output:
         set val(pair_id), file("aligned_reads.bam") \
-            into alignedSortedBam
+            into aligned_sorted_bam
     script:
     """
     module load ${params.modules.PICARD}
@@ -64,21 +54,26 @@ process sort_and_bamize {
     """
 }
 
-( alignedSortedBam_for_metrics, alignedSortedBam_for_duplicates ) =
-   alignedSortedBam.into(2)
+// The channel of sorted bam files is split into two channels, one for
+// calculating metrics, and one for deduplicating. Note that both are
+// channels of 'set's of input ID, round ID, and a bam filepath.
+( aligned_sorted_bam_for_metrics, aligned_sorted_bam_for_duplicates ) =
+   aligned_sorted_bam.into(2)
 
+// On the metrics copy, calculate the alignment metrics. 
+// Note this is copied ot the output directory
 process collect_alignment_metrics {
     publishDir "./output", mode: "copy"
     input:
         set val(pair_id), file(aligned_reads) \
-            from alignedSortedBam_for_metrics
+            from aligned_sorted_bam_for_metrics
     output:
         set val(pair_id), 
             file("${pair_id}_alignment_metrics.txt"), \
             file("${pair_id}_insert_metrics.txt"), \
             file("${pair_id}_insert_size_histogram.pdf"), \
             file("${pair_id}_depth_out.txt") \
-            into alignmentMetrics_output
+            into alignment_metrics_output
     script:
     """
     module load ${params.modules.PICARD}
@@ -95,15 +90,17 @@ process collect_alignment_metrics {
     """
 }
 
+// On the deduplicate copy, do the deduplication and copy the output
+// txt files to the output directory.
 process mark_duplicates {
     publishDir "./output", mode: "copy", pattern: "*.txt"
     input:
         set val(pair_id), file(aligned_reads) \
-            from alignedSortedBam_for_duplicates 
+            from aligned_sorted_bam_for_duplicates 
     output:
         set val(pair_id), file("${pair_id}_reads_dedup.bam"), \
             file("${pair_id}_reads_dedup.bai") \
-            into alignedDedupedBam
+            into aligned_deduped_bam
     script:
     """
     module load ${params.modules.PICARD}
@@ -115,14 +112,15 @@ process mark_duplicates {
     """
 }
 
+// Take that deduplicated file and realign it around the indels.
 process realign_around_indels {
     input:
         set val(pair_id), file(reads_dedup), file(reads_dedup_index) \
-            from alignedDedupedBam
+            from aligned_deduped_bam 
     output:
         set val(pair_id), val(1), \
             file("${pair_id}_realigned_reads.bam") \
-            into realignedBam_first_output
+            into bams_to_work_on_first_input
     script:
     """
     module load ${params.modules.GATK}
@@ -138,28 +136,42 @@ process realign_around_indels {
     """
 }
 
-realignedBam_for_recalibration        = Channel.create()
-realignedBam_for_reporting            = Channel.create()
-realignedBam_for_variant_calling      = Channel.create()
-realignedBam_for_base_recalibration   = Channel.create()
-realignedBam_for_actual_recalibration = Channel.create()
+// Now it gets a bit tricky. We want to take this first rounds of
+// inputs and process them, but also leave it open to 'mix'ing in
+// some downstream files in a bit of a loop.
 
-realignedBam_first_output
-    .tap(realignedBam_for_variant_calling)
-    .tap(realignedBam_for_recalibration)
+// First, we make all the channels. Note the second one is a throwaway
+// '*_tmp' channel, because nextflow is careful about single 
+// inputs/outputs.
+bams_for_variant_calling = Channel.create()
+bams_for_variant_calling_tmp = Channel.create()
+bams_for_base_recalibration = Channel.create()
+bams_for_actual_recalibration = Channel.create()
+bam_recalibrated_qualitites  = Channel.create()
 
+// Here we actually 'mix' in the bams with recalibrated quality 
+// scores. Note that everything is a 'set' with the second position
+// (as 1, they are 0-indexed) value as the rounds (1-indexed for the
+// end-users)
+bams_to_work_on_first_input.mix(bam_recalibrated_qualitites)
+    .tap(bams_for_variant_calling)
+    .tap(bams_for_variant_calling_tmp)
+    .filter({ it[1] == 1 })
+    .tap(bams_for_base_recalibration)
+    .tap(bams_for_actual_recalibration)
 
-realignedBam_for_recalibration
-    .tap(realignedBam_for_base_recalibration)
-    .tap(realignedBam_for_actual_recalibration) 
+bams_for_reporting = Channel.create()
+bams_for_variant_calling_tmp
+    .filter({ it[1] == 2 })
+    .tap(bams_for_reporting)
 
 process call_variants {
     input:
         set val(pair_id), val(round), file(input_bam) \
-            from realignedBam_for_variant_calling
+            from bams_for_variant_calling
     output:
         set val(pair_id), val(round), file("${pair_id}_variants.vcf")\
-            into calledVariants
+            into called_variants
     script:
     """
     module load ${params.modules.GATK}
@@ -169,26 +181,26 @@ process call_variants {
         -o ${pair_id}_variants.vcf
     """
 }
-calledVariants_for_extracting = Channel.create()
-calledVariants_for_filtering = Channel.create()
-calledVariants_final = Channel.create()
-calledVariants
-    .tap(calledVariants_for_extracting)
-    .tap(calledVariants_for_filtering)
-    .filter{it[1] == 2}
-    .tap(calledVariants_final)
-//    .filter{it[1] == 1}
-//    .tap(calledVariants_for_base_recalibration)
+
+called_variants_for_extracting = Channel.create()
+called_variants_for_filtering = Channel.create()
+called_variants_for_reporting = Channel.create()
+called_variants
+    .tap(called_variants_for_extracting)
+    .tap(called_variants_for_filtering)
+    .filter({ it[1] == 2 })
+    .tap(called_variants_for_reporting)
+
 process extract_snps_and_indels {
     publishDir "./output", mode: "copy"
     input:
         set val(pair_id), val(round), file(variants) \
-            from calledVariants_for_extracting
+            from called_variants_for_extracting
     output:
         set val(pair_id), val(round), \
             file("${pair_id}_snps_round${round}.vcf"), \
             file("${pair_id}_indel_round${round}.vcf") \
-            into extractedVariants
+            into extracted_variants
     script:
     """
     module load ${params.modules.GATK}
@@ -208,12 +220,12 @@ process filter_snps_and_indels {
     publishDir "./output", mode: "copy"
     input:
         set val(pair_id), val(round), file(variants) \
-            from calledVariants_for_filtering
+            from called_variants_for_filtering
     output:
         set val(pair_id), val(round), 
             file("${pair_id}_filtered_snps_round${round}.vcf"), \
             file("${pair_id}_filtered_indels_round${round}.vcf") \
-            into filteredVariants
+            into filtered_variants
     script:
     """
     module load ${params.modules.GATK}
@@ -241,25 +253,20 @@ process filter_snps_and_indels {
         -o ${pair_id}_filtered_indels_round${round}.vcf
     """
 }
-filteredVariants_for_recalibration = Channel.create()
-filteredVariants_for_final_report  = Channel.create()
-filteredVariants
-    .choice(filteredVariants_for_recalibration,
-        filteredVariants_for_final_report)
-    { a -> a[1] > 1 ? 0 : 1 }
+
+bam_and_variants_for_recalibration = bams_for_base_recalibration
+    .join(filtered_variants)
 
 process base_recalibrator {
     publishDir "./output", mode: "copy"
     input:
-        set val(pair_id), val(round), file(input_bam) \
-            from realignedBam_for_base_recalibration
-        set val(pair_id), val(round), \
-            file(filtered_snps), file(filtered_indels) \
-            from filteredVariants_for_recalibration
+        set val(pair_id), val(round), file(input_bam), \
+            val(round2), file(filtered_snps), file(filtered_indels) \
+            from bam_and_variants_for_recalibration
     output:
         set val(pair_id), file("first_recal_data.table"), \
             file("second_recal_data.table") \
-            into bqsrOutputs
+            into bqsr_outputs 
 //	#todo: knownSites input shouldnt be full raw_variants.vcf file but only the TOP variants!
     script:
     """
@@ -273,25 +280,23 @@ process base_recalibrator {
         -R ${params.reference_prefix} \
         -I ${input_bam} \
         -knownSites ${filtered_snps} -knownSites ${filtered_indels} \
-        -BQSR first_recal_data.table
+        -BQSR first_recal_data.table \
         -o second_recal_data.table
     """
 }
-bqsrOutputs_for_covariate = Channel.create()
-bqsrOutputs_for_apply = Channel.create()
-bqsrOutputs
-    .tap(bqsrOutputs_for_covariate)
-    .tap(bqsrOutputs_for_apply)
+
+( bqsr_outputs_for_covariate, bqsr_outputs_for_apply 
+    ) = bqsr_outputs.into(2)
 
 process covariates_analyzer {
     publishDir "./output", mode: "copy"
     input:
         set val(pair_id), file(first_recal_table), \
             file(second_recal_table) \
-            from bqsrOutputs_for_covariate
+            from bqsr_outputs_for_covariate
     output:
         set val(pair_id), file("${pair_id}_recalibration_plots.pdf") \
-            into analyzedCovariates_output 
+            into analyzed_covariates_output 
     script:
     """
     module load ${params.modules.GATK}
@@ -304,17 +309,18 @@ process covariates_analyzer {
     """
 }
 
+bam_and_bqsr_for_actual_recalibration = bams_for_actual_recalibration
+    .join(bqsr_outputs_for_apply)
+
 process apply_bqsr {
     input:
-        set val(pair_id), \
+        set val(pair_id), val(round), file(input_bam), \
             file(first_recal_table), file(second_recal_table) \
-            from bqsrOutputs_for_apply
-        set val(pair_id), val(round), file(input_bam) \
-            from realignedBam_for_actual_recalibration
+            from bam_and_bqsr_for_actual_recalibration
     output:
         set val(pair_id), val(2), \
             file("${pair_id}_recalibrated.bam") \
-            into realignedBam_second_pass
+            into bam_recalibrated_qualitites
     script:
     """
     module load ${params.modules.GATK}
@@ -326,129 +332,32 @@ process apply_bqsr {
     """
 }
 
-realignedBam_second_pass
-
-process call_variants2 {
-    input:
-        set val(pair_id), val(round), file(input_bam) \
-            from realignedBam_second_pass
-    output:
-        set val(pair_id), val(round), file("${pair_id}_variants.vcf")\
-            into calledVariants2
-    script:
-    """
-    module load ${params.modules.GATK}
-    java -jar ${params.modules.GATK_JAR} -T HaplotypeCaller \
-        -R ${params.reference_prefix} \
-        -I ${input_bam} \
-        -o ${pair_id}_variants.vcf
-    """
-}
-calledVariants2_for_extracting = Channel.create()
-calledVariants2_for_filtering = Channel.create()
-calledVariants2_final = Channel.create()
-calledVariants2
-    .tap(calledVariants2_for_extracting)
-    .tap(calledVariants2_for_filtering)
-    .filter{it[1] == 2}
-    .tap(calledVariants2_final)
-//    .filter{it[1] == 1}
-//    .tap(calledVariants_for_base_recalibration)
-process extract_snps_and_indels2 {
-    publishDir "./output", mode: "copy"
-    input:
-        set val(pair_id), val(round), file(variants) \
-            from calledVariants2_for_extracting
-    output:
-        set val(pair_id), val(round), \
-            file("${pair_id}_snps_round${round}.vcf"), \
-            file("${pair_id}_indel_round${round}.vcf") \
-            into extractedVariants2
-    script:
-    """
-    module load ${params.modules.GATK}
-    java -jar ${params.modules.GATK_JAR} -T SelectVariants \
-        -R ${params.reference_prefix} \
-        -V ${variants} \
-        -selectType SNP \
-        -o ${pair_id}_snps_round${round}.vcf
-    java -jar ${params.modules.GATK_JAR} -T SelectVariants \
-        -R ${params.reference_prefix} \
-        -V ${variants} \
-        -selectType INDEL \
-        -o ${pair_id}_indel_round${round}.vcf
-    """
-}
-process filter_snps_and_indels2 {
-    publishDir "./output", mode: "copy"
-    input:
-        set val(pair_id), val(round), file(variants) \
-            from calledVariants2_for_filtering
-    output:
-        set val(pair_id), val(round), 
-            file("${pair_id}_filtered_snps_round${round}.vcf"), \
-            file("${pair_id}_filtered_indels_round${round}.vcf") \
-            into filteredVariants2
-    script:
-    """
-    module load ${params.modules.GATK}
-    java -jar ${params.modules.GATK_JAR} -T VariantFiltration \
-        -R ${params.reference_prefix} \
-        -V ${variants} \
-        -filterName \"QD_filter\" \
-        -filter \"QD < 2.0\" \
-        -filterName \"FS_filter\" \
-        -filter \"FS > 60.0\" \
-        -filterName \"MQ_filter\" \
-        -filter \"MQ < 40.0\" \
-        -filterName \"SOR_filter\" \
-        -filter \"SOR > 4.0\" \
-        -o ${pair_id}_filtered_snps_round${round}.vcf
-    java -jar ${params.modules.GATK_JAR} -T VariantFiltration \
-        -R ${params.reference_prefix} \
-        -V ${variants} \
-        -filterName \"QD_filter\" \
-        -filter \"QD < 2.0\" \
-        -filterName \"FS_filter\" \
-        -filter \"FS > 200.0\" \
-        -filterName \"SOR_filter\" \
-        -filter \"SOR > 10.0\" \
-        -o ${pair_id}_filtered_indels_round${round}.vcf
-    """
-}
-filteredVariants2_for_recalibration = Channel.create()
-filteredVariants2_for_final_report  = Channel.create()
-filteredVariants2
-    .choice(filteredVariants2_for_recalibration,
-        filteredVariants2_for_final_report)
-    { a -> a[1] > 1 ? 0 : 1 }
-
-process final_metrics {
-    publishDir "./output", mode: "copy"
-    input:
-        set val(pair_id), file(recalibrated_bam) \
-            from realignedBam_for_reporting
-    output:
-        set val(pair_id), file("${pair_id}_genomecov.bedgraph") \
-            into final_metrics_output
-    script:
-    """
-    module load ${params.modules.BEDTOOLS}
-    bedtools genomecov -bga -ibam ${recalibrated_bam} > \
-        ${pair_id}_genomecov.bedgraph 
-    #sh ./parse_metrics.sh ${pair_id}"
-    """
-}
+//process final_metrics {
+//    publishDir "./output", mode: "copy"
+//    input:
+//        set val(pair_id), val(round), file(recalibrated_bam) \
+//            from bams_for_reporting 
+//    output:
+//        set val(pair_id), file("${pair_id}_round${round}_genomecov.bedgraph") \
+//            into output_bedgraph
+//    script:
+//    """
+//    module load ${params.modules.BEDTOOLS}
+//    bedtools genomecov -bga -ibam ${recalibrated_bam} > \
+//        ${pair_id}_round${round}_ genomecov.bedgraph 
+//    #sh ./parse_metrics.sh ${pair_id}"
+//    """
+//}
 
 process snpeff {
     publishDir "./output", mode: "copy"
     input:
         set val(pair_id), val(round), file(final_variants) \
-            from calledVariants_final
+            from called_variants_for_reporting
     output:
         set val(pair_id), val(round),
             file("${pair_id}_filtered_snps_final.ann.vcf") \
-            into calledVariants_output
+            into called_variants_output
     script:
     """
     module load ${params.modules.SNPEFF}
@@ -458,3 +367,6 @@ process snpeff {
     """
 }
 
+// The next two lines are for vim to use the right syntax highlighting
+// vim: syntax=groovy
+// -*- mode: groovy;-*-
